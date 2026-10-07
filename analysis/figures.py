@@ -109,13 +109,13 @@ def border(results, out):
     for ax, (lo, hi) in zip(axes[0], ranges):
         style(ax)
         ax.set_xlim(ranks[0] - 0.5, ranks[-1] + 0.5)
-        ax.set_ylim(0.0, 0.128)
         for r in ranks:
             if (r, lo, hi) in L:
                 strip(ax, r, L[(r, lo, hi)], COOL)
         ax.set_title(rf"$[d_{{\min}},d_{{\max}}]=[{lo},{hi}]$", pad=6)
         ax.set_xlabel(r"border rank parameter $r$")
         ax.set_xticks(ranks)
+    axes[0][0].set_ylim(bottom=0.0)
     axes[0][0].set_ylabel("best validation loss")
     axes[0][0].legend([dot(COOL), plt.Line2D([], [], marker="s", ms=4.0, color=MEAN, lw=0.9)],
                       ["single run", "mean $\\pm$ std"], frameon=False, loc="lower left",

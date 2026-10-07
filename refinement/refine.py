@@ -77,31 +77,36 @@ def projected_lm(prob, x, c, max_iter=50_000, kkt_tol=1e-9, stall_window=200, st
         Jf = J[:, free]
         A = Jf.T @ Jf
         diag = np.maximum(np.diag(A), 1e-12)
+        # damping search: first upwards from the current value; if the predicted reduction
+        # drops below what double precision can resolve, downwards from it
+        mu_try, direction, accepted = mu, 4.0, False
         while True:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", la.LinAlgWarning)
-                    step = la.solve(A + mu * np.diag(diag), -g[free], assume_a="pos")
+                    step = la.solve(A + mu_try * np.diag(diag), -g[free], assume_a="pos")
             except (la.LinAlgError, la.LinAlgWarning):      # singular to working precision
-                mu *= 10.0
-                if mu > 1e15:
-                    return _polish(prob, x, c, "stalled", it)
-                continue
-            trial = x.copy()
-            trial[free] += step
-            trial = np.clip(trial, -c, c)
-            d = (trial - x)[free]
-            predicted = -(g[free] @ d + 0.5 * d @ (A @ d))
-            res_t = prob.residual(trial)
-            f_t = 0.5 * res_t @ res_t
-            if predicted > 0 and f_t < f and (f - f_t) / predicted > 1e-4:
-                gain = (f - f_t) / predicted
-                x, res, f = trial, res_t, f_t
-                mu = max(mu * (0.2 if gain > 0.75 else 1.0 if gain > 0.25 else 4.0), 1e-15)
+                step = None
+            if step is not None:
+                trial = x.copy()
+                trial[free] += step
+                trial = np.clip(trial, -c, c)
+                d = (trial - x)[free]
+                predicted = -(g[free] @ d + 0.5 * d @ (A @ d))
+                res_t = prob.residual(trial)
+                f_t = 0.5 * res_t @ res_t
+                if predicted > 0 and f_t < f and (f - f_t) / predicted > 1e-4:
+                    gain = (f - f_t) / predicted
+                    x, res, f, accepted = trial, res_t, f_t, True
+                    mu = max(mu_try * (0.2 if gain > 0.75 else 1.0 if gain > 0.25 else 4.0), 1e-14)
+                    break
+            if direction > 1 and (mu_try > 1e15 or (step is not None and 0 <= predicted < 1e-15 * f)):
+                mu_try, direction = mu, 0.25
+            mu_try *= direction
+            if mu_try < 1e-14:
                 break
-            mu *= 4.0
-            if mu > 1e15:
-                return _polish(prob, x, c, "stalled", it)
+        if not accepted:
+            return _polish(prob, x, c, "stalled", it)
         history.append(np.sqrt(2 * f))
         if len(history) > stall_window and history[-1] > history[-1 - stall_window] * (1 - stall_tol):
             return _polish(prob, x, c, "stalled", it)
