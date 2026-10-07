@@ -1,0 +1,36 @@
+{
+  "input_path": "rank22_input.csv",
+  "input_sha256": "445cff695c3f2bc26b4b5dc117287fa678e2cb6041b127ba8d7f88ab06abe8aa",
+  "command": [
+    "continuation.py",
+    "rank22_input.csv",
+    "--out",
+    "data"
+  ],
+  "python": "3.12.3",
+  "numpy": "2.5.1",
+  "scipy": "1.18.0",
+  "model_dimensions": {
+    "n": 3,
+    "r": 22,
+    "parameters": 594,
+    "equations": 729,
+    "projected_equations": 550,
+    "slice_equations": 44
+  },
+  "options": {
+    "input": "rank22_input.csv",
+    "out": "data",
+    "seed": 12345,
+    "rcond": 1e-10,
+    "ds": 0.0001,
+    "max_ds": 0.02,
+    "min_ds": 1e-09,
+    "max_steps": 1500,
+    "tol": 1e-11,
+    "max_newton_iters": 20,
+    "post_turn_steps": 30,
+    "self_test": false
+  },
+  "reference_normalization": 5.196152422706632
+}
