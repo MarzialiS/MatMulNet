@@ -19,7 +19,7 @@ The repository contains
 | folder | content |
 |---|---|
 | `matmulnet/` | model, data, schedules and the training loop |
-| `experiments/` | launcher of the three training sweeps |
+| `experiments/` | launcher of the training sweeps; known schemes for `4 x 4` matrices |
 | `refinement/` | constrained refinement of a trained decomposition (projected Levenberg–Marquardt) |
 | `continuation/` | projected pseudo-arclength continuation of the length-22 candidate, with its input and output data |
 | `analysis/` | tables, statistical tests and figures |
@@ -57,11 +57,17 @@ The protocol is the same for every experiment:
 - the result of a run is its best validation loss, and the parameters that attain it.
 
 A run writes, in its `--out` folder, `per_epoch.csv` (training and validation loss, learning
-rate, `ε`), `best.npz` (best parameters and the factors `H, K, F`), `summary.json` (best
-validation loss, its epoch, the residual `ρ` and the weight `W` of the best factors) and
+rate, `ε`, and the residual `ρ` and weight `W` of the current factors, every 100 epochs),
+`best.npz` and `last.npz` (parameters and factors `H, K, F` at the best validation loss and at
+the last epoch), `summary.json` (best and last validation loss with the corresponding `ρ` and
+`W`, epochs, number of parameter updates, wall-clock time, arithmetic precision) and
 `ckpt.npz`. The checkpoint holds the complete state — parameters, optimiser, schedules, random
 generator, data — so a run that is interrupted and launched again with the same command
 continues exactly as if it had never stopped.
+
+`--init-from FILE` starts from the factors stored in `FILE` instead of a random point, and
+`--wandb ENTITY/PROJECT` also sends the logged quantities to Weights & Biases (`pip install
+wandb`).
 
 ### Two implementations of the training step
 
@@ -69,8 +75,8 @@ continues exactly as if it had never stopped.
 `clip_grad_norm_`, `torch.optim.Adam`. `matmulnet/kernels.py` computes the same epoch in a
 single compiled function (numba), with the gradient written out by hand; it is the default
 because it is more than an order of magnitude faster for models this small: about 1 ms per
-epoch for `2 x 2` and 4–6 ms per epoch for `3 x 3` on one core of a laptop CPU, i.e. one to two
-hours for a `10^6`-epoch run. Select the implementation with `--backend numba|torch`. The tests check
+epoch for `2 x 2`, 4–6 ms for `3 x 3` and 9–14 ms for `4 x 4` on one core of a laptop CPU,
+i.e. one to four hours for a `10^6`-epoch run. Select the implementation with `--backend numba|torch`. The tests check
 that the two produce the same trajectory up to rounding.
 
 ## The sweeps
@@ -79,8 +85,12 @@ that the two produce the same trajectory up to rounding.
     python experiments/sweep.py rank           # 3x3, r = 16, ..., 24                    (63 runs)
     python experiments/sweep.py border         # 3x3, r = 16, ..., 21, exponent ranges
                                                # [-2,4], [-3,5], [-4,6]                  (126 runs)
+    python experiments/sweep.py rank4          # 4x4, r = 45, ..., 49                    (35 runs)
+    python experiments/sweep.py border4        # 4x4, r = 44, ..., 47, exponent range
+                                               # [-1,2]                                  (28 runs)
 
-Each configuration is run seven times, with seeds 1 to 7. Runs are independent single-threaded
+Each configuration is run seven times, with seeds 1 to 7; `--ranks` and `--seeds` select a
+subset or other values. Runs are independent single-threaded
 processes; `--jobs` sets how many run at once. Finished runs are skipped and interrupted ones
 resume, so the same command can be issued again at any time. `border --init scaled` runs the
 border-rank sweep with the scaled initialisation; its runs are stored next to the others (with
@@ -100,6 +110,31 @@ same `--init` option to select them.
     python analysis/figures.py rank            # figures/rank_strip_{linear,log}
     python analysis/figures.py border          # figures/brank_strip
 
+## Limit of an ε-parametrised decomposition
+
+    python analysis/laurent.py runs/border_n4_r46_d-1_2_seed1/best.npz
+
+With the coefficients held fixed, the tensor represented by the border-rank model is a Laurent
+polynomial `T(ε) = Σ_d ε^d T_d`, and the family converges to `M_n` as `ε → 0` exactly when
+`T_d = 0` for all `d < 0` and `T_0 = M_n`. The script reports the norm of every `T_d`, the
+distance of `T_0` from `M_n`, and `ρ`, `W` and the cancellation level of the factors evaluated
+on a decreasing sequence of values of `ε`.
+
+## Known schemes for 4 x 4 matrices
+
+    python experiments/known_schemes.py strassen49 --out schemes/strassen49.npz
+    python experiments/known_schemes.py rational48 --source 4x4x4_LRP.mpl --out schemes/rational48.npz
+    python experiments/known_schemes.py smirnov46  --source smirnov.txt --out schemes/smirnov46.npz
+    python experiments/known_schemes.py perturb schemes/rational48.npz --sigma 1e-2 --out schemes/rational48_s1e-2.npz
+
+write, in the format of `best.npz`, Strassen's scheme applied to itself (49 terms), the
+rational 48-term scheme of Dumas, Pernet and Sedoglavic (arXiv:2506.13242; `--source` is the
+file of the catalogue <https://fmm.univ-lille.fr/4x4x4.html>), the approximate scheme of length
+46 of Smirnov (arXiv:1412.1687; `--source` is the output of `pdftotext -layout` on the paper),
+whose coefficients are Laurent polynomials in `ε` with exponents `-1, …, 2`, and a noisy copy
+of a stored scheme. Each scheme is checked against `M_4` when it is written. The files can be
+passed to `matmulnet.train --init-from`, `refinement.refine --init` and `analysis/laurent.py`.
+
 ## Constrained refinement
 
     python -m refinement.refine --init runs/rank_n3_r22_seed<i>/best.npz --out refinement_r22
@@ -115,7 +150,9 @@ script minimises the full-tensor relative residual
 by projected Levenberg–Marquardt, each level being warm-started from the previous one. It
 records `ρ` against the gauge-invariant weight `W = Σ_s ||h_s|| ||k_s|| ||f_s||` in
 `frontier.csv`, saves the factors of every level, and stops when `ρ` falls below the
-double-precision cancellation level of the current solution. The method is local: the values
+double-precision cancellation level of the current solution. `--max-seconds` bounds the time
+spent on each level and `--threads` sets the threads of the linear algebra (useful from
+`4 x 4` on, where an iteration solves a system with a few thousand unknowns). The method is local: the values
 are those reached along the warm-started branch, not global minima over the boxes.
 
 ## Pseudo-arclength continuation

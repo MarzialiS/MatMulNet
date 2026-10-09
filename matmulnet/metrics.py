@@ -8,6 +8,8 @@ n*i + j. The factors are H, K of shape (n^2, r) and F of shape (r, n^2); summand
 
 so that vec(AB) = F^T ((H^T vec A) * (K^T vec B)) whenever T equals the multiplication tensor.
 """
+import itertools
+
 import numpy as np
 
 
@@ -47,3 +49,14 @@ def cancellation_level(H, K, F, n):
 def evaluate(coeff, degrees, eps):
     """Evaluate a Laurent factor: sum_e eps^e coeff[..., e - d_min]."""
     return coeff @ (float(eps) ** np.asarray(degrees, dtype=np.float64))
+
+
+def laurent(H_coeff, K_coeff, F_coeff, degrees):
+    """Coefficients of the represented tensor as a Laurent polynomial in eps:
+    {exponent: tensor}, for factors sum_e eps^e coeff[..., e - d_min]."""
+    out = {}
+    for (i, a), (j, b), (k, c) in itertools.product(enumerate(degrees), repeat=3):
+        t = np.einsum("as,bs,sc->abc", H_coeff[..., i], K_coeff[..., j], F_coeff[..., k],
+                      optimize=True)
+        out[a + b + c] = out.get(a + b + c, 0.0) + t
+    return dict(sorted(out.items()))

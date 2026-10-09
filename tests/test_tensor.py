@@ -31,6 +31,9 @@ def test_jacobian():
     x, d = rng.normal(size=3 * 4 * 7), rng.normal(size=3 * 4 * 7)
     fd = (prob.residual(x + 1e-6 * d) - prob.residual(x - 1e-6 * d)) / 2e-6
     assert np.allclose(prob.jacobian(x) @ d, fd, rtol=1e-6, atol=1e-8)
+    J, res = prob.jacobian(x), prob.residual(x)
+    A, g = prob.normal(x, res)
+    assert np.allclose(A, J.T @ J, rtol=1e-12, atol=1e-12) and np.allclose(g, J.T @ res)
 
 
 def test_refinement_reaches_machine_precision(tmp_path):
@@ -39,3 +42,17 @@ def test_refinement_reaches_machine_precision(tmp_path):
     rows = chain(H, K, F, 2, str(tmp_path), levels=[0.2, 1.5], verbose=False)
     assert rows[0][1] > 1e-3            # the box |theta| <= 0.2 is too small
     assert rows[-1][1] < 1e-13
+
+
+def test_strassen_and_its_square():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location(
+        "known_schemes", pathlib.Path(__file__).parents[1] / "experiments" / "known_schemes.py")
+    ks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ks)
+    assert metrics.rho(*ks.strassen(), 2) == 0.0
+    H, K, F = ks.kronecker(ks.strassen(), ks.strassen(), 2, 2)
+    assert H.shape == (16, 49) and metrics.rho(H, K, F, 4) == 0.0
+    lau = metrics.laurent(H[..., None], K[..., None], F[..., None], [0])
+    assert list(lau) == [0] and np.array_equal(lau[0], metrics.matmul_tensor(4))

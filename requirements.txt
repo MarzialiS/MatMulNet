@@ -5,3 +5,4 @@ matplotlib
 threadpoolctl
 torch        # only for --backend torch and the tests
 pytest       # only for the tests
+wandb        # only for --wandb

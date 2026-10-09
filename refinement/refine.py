@@ -11,12 +11,13 @@ the previous one, so the levels form a chain along which rho cannot increase. Th
 as soon as rho falls below the double-precision cancellation level of the current solution.
 
 Output in --out: frontier.csv (one row per level: c, rho, weight W, largest |theta_i|, number
-of coefficients at the bound, cancellation level, iterations, status) and level_<c>.npz with
-the factors reached at each level.
+of coefficients at the bound, cancellation level, iterations, status, time) and level_<c>.npz
+with the factors reached at each level. --max-seconds bounds the time spent on each level.
 """
 import argparse
 import csv
 import os
+import time
 import warnings
 
 import numpy as np
@@ -55,27 +56,60 @@ class Problem:
             np.einsum("as,bi,sc->abcis", H, I, F).reshape(m ** 3, m * r),
             np.einsum("as,bs,ck->abcsk", H, K, I).reshape(m ** 3, m * r)], axis=1) / self.normM
 
+    def normal(self, x, res):
+        """J^T J and J^T res without forming J: every block of J^T J is a product of the
+        Gram matrices of two factors and of entries of the third."""
+        H, K, F = self.unpack(x)
+        m, r, I = self.m, self.r, self.eye
+        hh, kk, ff = H.T @ H, K.T @ K, F @ F.T
+        A = np.empty((3 * m * r, 3 * m * r))
+        o = m * r
+        A[:o, :o] = np.einsum("ab,st->asbt", I, kk * ff).reshape(o, o)
+        A[o:2 * o, o:2 * o] = np.einsum("ab,st->asbt", I, hh * ff).reshape(o, o)
+        A[2 * o:, 2 * o:] = np.einsum("st,cd->sctd", hh * kk, I).reshape(o, o)
+        A[:o, o:2 * o] = np.einsum("bs,at,st->asbt", K, H, ff).reshape(o, o)
+        A[:o, 2 * o:] = np.einsum("st,sc,at->astc", kk, F, H).reshape(o, o)
+        A[o:2 * o, 2 * o:] = np.einsum("st,sc,bt->bstc", hh, F, K).reshape(o, o)
+        A[o:2 * o, :o] = A[:o, o:2 * o].T
+        A[2 * o:, :o] = A[:o, 2 * o:].T
+        A[2 * o:, o:2 * o] = A[o:2 * o, 2 * o:].T
+        R = res.reshape(m, m, m)
+        g = self.pack(np.einsum("abc,bs,sc->as", R, K, F, optimize=True),
+                      np.einsum("abc,as,sc->bs", R, H, F, optimize=True),
+                      np.einsum("abc,as,bs->sc", R, H, K, optimize=True))
+        return A / self.normM ** 2, g / self.normM
 
-def projected_lm(prob, x, c, max_iter=50_000, kkt_tol=1e-9, stall_window=200, stall_tol=1e-7):
+
+def projected_lm(prob, x, c, max_iter=50_000, kkt_tol=1e-9, stall_window=200, stall_tol=1e-7,
+                 max_seconds=None):
     """Levenberg-Marquardt on the box |x_i| <= c. The step is computed on the variables that
     are free at the current point (not at a bound with the gradient pointing outwards), the
     trial point is projected back onto the box, and the damping is driven by the ratio of the
-    achieved to the predicted reduction. Returns (x, status, iterations)."""
+    achieved to the predicted reduction. Returns (x, status, iterations); the status is
+    "time_limit" when max_seconds elapse first."""
     x = np.clip(x, -c, c)
     res = prob.residual(x)
     f = 0.5 * res @ res
-    mu, history = 1e-3, [np.sqrt(2 * f)]
+    mu, history, t0 = 1e-3, [np.sqrt(2 * f)], time.time()
     for it in range(1, max_iter + 1):
+        if max_seconds is not None and time.time() - t0 > max_seconds:
+            return _polish(prob, x, c, "time_limit", it - 1)
         H, K, F = prob.unpack(x)
         if np.sqrt(2 * f) < metrics.cancellation_level(H, K, F, prob.n):
             return x, "machine_precision", it - 1
-        J = prob.jacobian(x)
-        g = J.T @ res
+        if prob.n <= 3:                 # small enough to form the Jacobian
+            J = prob.jacobian(x)
+            g = J.T @ res
+        else:
+            N, g = prob.normal(x, res)
         if np.max(np.abs(x - np.clip(x - g, -c, c))) < kkt_tol * np.sqrt(2 * f):
             return x, "kkt", it - 1
         free = ~(((x >= c) & (g < 0)) | ((x <= -c) & (g > 0)))
-        Jf = J[:, free]
-        A = Jf.T @ Jf
+        if prob.n <= 3:
+            Jf = J[:, free]
+            A = Jf.T @ Jf
+        else:
+            A = N[np.ix_(free, free)]
         diag = np.maximum(np.diag(A), 1e-12)
         # damping search: first upwards from the current value; if the predicted reduction
         # drops below what double precision can resolve, downwards from it
@@ -135,7 +169,7 @@ def _polish(prob, x, c, status, it, rounds=20):
     return x, status, it
 
 
-def chain(H, K, F, n, out, levels=LEVELS, max_iter=50_000, verbose=True):
+def chain(H, K, F, n, out, levels=LEVELS, max_iter=50_000, verbose=True, max_seconds=None):
     prob = Problem(n, H.shape[1])
     x = prob.pack(H, K, F)
     os.makedirs(out, exist_ok=True)
@@ -143,13 +177,15 @@ def chain(H, K, F, n, out, levels=LEVELS, max_iter=50_000, verbose=True):
     with open(os.path.join(out, "frontier.csv"), "w", newline="") as fh:
         wr = csv.writer(fh)
         wr.writerow(["c", "rho", "W", "max_abs_theta", "at_bound", "cancellation_level",
-                     "iterations", "status"])
+                     "iterations", "status", "seconds"])
         for c in levels:
-            x, status, iters = projected_lm(prob, x, float(c), max_iter)
+            t0 = time.time()
+            x, status, iters = projected_lm(prob, x, float(c), max_iter, max_seconds=max_seconds)
             Hc, Kc, Fc = prob.unpack(x)
             row = [c, metrics.rho(Hc, Kc, Fc, n), metrics.weight(Hc, Kc, Fc),
                    float(np.max(np.abs(x))), int(np.sum(np.abs(x) >= c)),
-                   metrics.cancellation_level(Hc, Kc, Fc, n), iters, status]
+                   metrics.cancellation_level(Hc, Kc, Fc, n), iters, status,
+                   round(time.time() - t0, 1)]
             wr.writerow([f"{v:.9e}" if isinstance(v, float) else v for v in row])
             fh.flush()
             np.savez(os.path.join(out, f"level_{c}.npz"), H=Hc, K=Kc, F=Fc, c=c)
@@ -169,11 +205,14 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--levels", type=float, nargs="+", default=LEVELS)
     ap.add_argument("--max-iter", type=int, default=50_000)
+    ap.add_argument("--max-seconds", type=float, help="time limit per level")
+    ap.add_argument("--threads", type=int, default=1, help="threads of the linear algebra")
     a = ap.parse_args()
     z = np.load(a.init)
     H, K, F = (np.asarray(z[k], dtype=np.float64) for k in ("H", "K", "F"))
-    with threadpool_limits(limits=1):       # the linear systems are small: one thread is fastest
-        chain(H, K, F, int(round(np.sqrt(H.shape[0]))), a.out, a.levels, a.max_iter)
+    with threadpool_limits(limits=a.threads):   # one thread is fastest for 3 x 3
+        chain(H, K, F, int(round(np.sqrt(H.shape[0]))), a.out, a.levels, a.max_iter,
+              max_seconds=a.max_seconds)
 
 
 if __name__ == "__main__":

@@ -4,8 +4,11 @@
     python experiments/sweep.py rank            # 3x3, r = 16, ..., 24
     python experiments/sweep.py border          # 3x3, r = 16, ..., 21, exponent ranges
                                                 # [-2,4], [-3,5], [-4,6]
+    python experiments/sweep.py rank4           # 4x4, r = 45, ..., 49
+    python experiments/sweep.py border4         # 4x4, r = 44, ..., 47, exponent range [-1,2]
 
-Each configuration is run 7 times (seeds 1-7). Every run is a single-threaded process writing
+Each configuration is run 7 times (seeds 1-7); --ranks and --seeds select a subset or other
+values. Every run is a single-threaded process writing
 to runs/<name>/; finished runs are skipped and interrupted ones continue from their checkpoint,
 so the command can simply be issued again.
 """
@@ -18,21 +21,27 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEEDS = range(1, 8)
-RANGES = [(-2, 4), (-3, 5), (-4, 6)]
+# experiment: (n, ranks, exponent ranges of the border-rank model or None)
+EXPERIMENTS = {
+    "calibration": (2, (6, 7), None),
+    "rank": (3, range(16, 25), None),
+    "border": (3, range(16, 22), [(-2, 4), (-3, 5), (-4, 6)]),
+    "rank4": (4, range(45, 50), None),
+    "border4": (4, range(44, 48), [(-1, 2)]),
+}
 
 
-def configurations(experiment, init="normal"):
-    if experiment == "calibration":
-        return [(f"rank_n2_r{r}_seed{s}", ["--n", "2", "--rank", str(r), "--seed", str(s)])
-                for r in (6, 7) for s in SEEDS]
-    if experiment == "rank":
-        return [(f"rank_n3_r{r}_seed{s}", ["--n", "3", "--rank", str(r), "--seed", str(s)])
-                for r in range(16, 25) for s in SEEDS]
+def configurations(experiment, init="normal", ranks=None, seeds=None):
+    n, default_ranks, ranges = EXPERIMENTS[experiment]
+    ranks, seeds = ranks or default_ranks, seeds or SEEDS
+    if ranges is None:
+        return [(f"rank_n{n}_r{r}_seed{s}", ["--n", str(n), "--rank", str(r), "--seed", str(s)])
+                for r in ranks for s in seeds]
     tag = "" if init == "normal" else f"_{init}"
-    return [(f"border_n3_r{r}_d{a}_{b}{tag}_seed{s}",
-             ["--n", "3", "--rank", str(r), "--degrees", str(a), str(b), "--seed", str(s),
+    return [(f"border_n{n}_r{r}_d{a}_{b}{tag}_seed{s}",
+             ["--n", str(n), "--rank", str(r), "--degrees", str(a), str(b), "--seed", str(s),
               "--init", init])
-            for r in range(16, 22) for a, b in RANGES for s in SEEDS]
+            for r in ranks for a, b in ranges for s in seeds]
 
 
 def finished(run_dir, max_epochs):
@@ -46,7 +55,10 @@ def finished(run_dir, max_epochs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("experiment", choices=["calibration", "rank", "border"])
+    ap.add_argument("experiment", choices=list(EXPERIMENTS))
+    ap.add_argument("--ranks", type=int, nargs="+", help="ranks to run (default: all)")
+    ap.add_argument("--seeds", type=int, nargs="+", help="seeds to run (default: 1 to 7)")
+    ap.add_argument("--wandb", metavar="ENTITY/PROJECT", help="log the runs to Weights & Biases")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2),
                     help="runs in parallel (default: half the logical cores)")
     ap.add_argument("--runs-dir", default=os.path.join(ROOT, "runs"))
@@ -67,11 +79,13 @@ def main():
         os.makedirs(run_dir, exist_ok=True)
         cmd = [sys.executable, "-m", "matmulnet.train", *args, "--out", run_dir, "--max-epochs",
                str(a.max_epochs), "--backend", a.backend, "--quiet"]
+        if a.wandb:
+            cmd += ["--wandb", a.wandb]
         with open(os.path.join(run_dir, "stdout.log"), "a") as log:
             code = subprocess.call(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         return name, "done" if code == 0 else f"FAILED (exit code {code})"
 
-    todo = configurations(a.experiment, a.init)
+    todo = configurations(a.experiment, a.init, a.ranks, a.seeds)
     with ThreadPoolExecutor(a.jobs) as pool:
         for i, (name, status) in enumerate(pool.map(run, todo), 1):
             print(f"[{i}/{len(todo)}] {name}: {status}", flush=True)

@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 runs/
+schemes/
+wandb/
 results.csv
 figures/
 refinement_r*/
