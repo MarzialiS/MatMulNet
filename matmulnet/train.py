@@ -4,7 +4,7 @@
     python -m matmulnet.train --n 3 --rank 19 --degrees -2 4 --seed 1 --out runs/border_r19_d-2_4_seed1
 
 Protocol: training set of 10,000 and validation set of 1,000 triples (A, B, AB), entries uniform
-in [-1, 1], drawn once; parameters initialised from N(0, 1); Adam on the per-entry mean squared
+in [-1, 1], drawn once; parameters initialised from N(0, 1) (see --init); Adam on the per-entry mean squared
 error with mini-batches of 32, the training set being reshuffled at every epoch; gradient norm
 clipped at 10; learning rate 1e-4, halved on plateaus of the validation loss (patience 15) down
 to 1e-6. With --degrees the three factors are Laurent polynomials in epsilon, which decays
@@ -24,7 +24,7 @@ import numpy as np
 
 from . import metrics
 from .data import draw_sets
-from .schedule import Plateau, epsilon_at
+from .schedule import EPS_START, Plateau, epsilon_at
 
 MAX_EPOCHS, BATCH, CLIP, ALPHA = 1_000_000, 32, 10.0, 1.0
 
@@ -62,9 +62,17 @@ def make_backend(name, params, degrees, clip=CLIP):
     return NumbaBackend(params, degrees, clip)
 
 
-def init_params(rng, n, r, d, alpha=ALPHA):
-    m = n * n
-    return [alpha * rng.standard_normal(s) for s in ((m, r, d), (m, r, d), (r, m, d))]
+def init_params(rng, n, r, degrees, init="normal", alpha=ALPHA, eps_start=EPS_START):
+    """init="normal": every coefficient from N(0, alpha^2).
+    init="scaled": the coefficient of eps^e from N(0, (alpha / eps_start^e)^2), so that every
+    monomial eps^e * coefficient is of size alpha at the start of the epsilon schedule.
+    The two coincide for the rank model (single exponent 0)."""
+    m, d = n * n, len(degrees)
+    params = [alpha * rng.standard_normal(s) for s in ((m, r, d), (m, r, d), (r, m, d))]
+    if init == "scaled":
+        scale = eps_start ** -np.asarray(degrees, dtype=np.float64)
+        params = [p * scale for p in params]
+    return params
 
 
 def _save_ckpt(path, epoch, backend, sched, best, rng, data, cfg):
@@ -94,11 +102,11 @@ def _save_best(out, best, cfg):
         json.dump(summary, fh, indent=2)
 
 
-def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="numba",
+def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="numba", init="normal",
           log_every=100, ckpt_every=10_000, quiet=False, _interrupt_at=None):
     border = degrees is not None
     deg = list(range(degrees[0], degrees[1] + 1)) if border else [0]
-    cfg = dict(n=n, rank=rank, degrees=deg, border=border, seed=seed, max_epochs=max_epochs,
+    cfg = dict(n=n, rank=rank, degrees=deg, border=border, seed=seed, init=init, max_epochs=max_epochs,
                backend=backend)
     os.makedirs(out, exist_ok=True)
     ckpt = os.path.join(out, "ckpt.npz")
@@ -107,7 +115,7 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
     if os.path.exists(ckpt):
         z = np.load(ckpt)
         meta = json.loads(str(z["meta"]))
-        for key in ("n", "rank", "degrees", "seed", "max_epochs"):
+        for key in ("n", "rank", "degrees", "seed", "init", "max_epochs"):
             if meta[key] != cfg[key]:
                 raise SystemExit(f"{ckpt} was written with {key}={meta[key]}, not {cfg[key]}")
         data = (tuple(z[f"train{i}"] for i in range(3)), tuple(z[f"val{i}"] for i in range(3)))
@@ -123,7 +131,7 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
     else:
         rng = np.random.default_rng(seed)
         data = draw_sets(rng, n)
-        params = init_params(rng, n, rank, len(deg))
+        params = init_params(rng, n, rank, deg, init)
         be = make_backend(backend, params, deg)
         sched = Plateau()
         best = dict(P=[p.copy() for p in params], val=float("inf"), epoch=0, eps=eps_of(1))
@@ -173,6 +181,9 @@ def main():
     ap.add_argument("--rank", type=int, required=True, help="number of multiplications r")
     ap.add_argument("--degrees", type=int, nargs=2, metavar=("D_MIN", "D_MAX"),
                     help="exponent range of the epsilon-parametrised (border rank) model")
+    ap.add_argument("--init", choices=["normal", "scaled"], default="normal",
+                    help="initial coefficients: N(0, 1) (default), or N(0, 1) divided by "
+                         "eps_start^e for the coefficient of eps^e")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-epochs", type=int, default=MAX_EPOCHS)
     ap.add_argument("--out", required=True, help="run directory")
@@ -183,7 +194,7 @@ def main():
     a = ap.parse_args()
     if a.degrees and a.degrees[0] > a.degrees[1]:
         ap.error("--degrees needs D_MIN <= D_MAX")
-    best = train(a.n, a.rank, a.out, a.seed, a.degrees, a.max_epochs, a.backend, a.log_every,
+    best = train(a.n, a.rank, a.out, a.seed, a.degrees, a.max_epochs, a.backend, a.init, a.log_every,
                  a.ckpt_every, a.quiet)
     print(f"best validation loss {best['val']:.6e} at epoch {best['epoch']}")
 

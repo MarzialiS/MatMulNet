@@ -11,7 +11,7 @@ from matmulnet.train import BATCH, init_params, make_backend
 def test_same_trajectory(n, r, deg, eps, scale):
     rng = np.random.default_rng(0)
     train, val = draw_sets(rng, n, 500, 100)
-    params = [scale * p for p in init_params(rng, n, r, len(deg))]
+    params = [scale * p for p in init_params(rng, n, r, deg)]
     nb, tc = make_backend("numba", params, deg), make_backend("torch", params, deg)
     assert abs(nb.validate(eps, val) / tc.validate(eps, val) - 1) < 1e-12
     for _ in range(3):

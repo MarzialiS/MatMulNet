@@ -21,15 +21,17 @@ SEEDS = range(1, 8)
 RANGES = [(-2, 4), (-3, 5), (-4, 6)]
 
 
-def configurations(experiment):
+def configurations(experiment, init="normal"):
     if experiment == "calibration":
         return [(f"rank_n2_r{r}_seed{s}", ["--n", "2", "--rank", str(r), "--seed", str(s)])
                 for r in (6, 7) for s in SEEDS]
     if experiment == "rank":
         return [(f"rank_n3_r{r}_seed{s}", ["--n", "3", "--rank", str(r), "--seed", str(s)])
                 for r in range(16, 25) for s in SEEDS]
-    return [(f"border_n3_r{r}_d{a}_{b}_seed{s}",
-             ["--n", "3", "--rank", str(r), "--degrees", str(a), str(b), "--seed", str(s)])
+    tag = "" if init == "normal" else f"_{init}"
+    return [(f"border_n3_r{r}_d{a}_{b}{tag}_seed{s}",
+             ["--n", "3", "--rank", str(r), "--degrees", str(a), str(b), "--seed", str(s),
+              "--init", init])
             for r in range(16, 22) for a, b in RANGES for s in SEEDS]
 
 
@@ -50,6 +52,8 @@ def main():
     ap.add_argument("--runs-dir", default=os.path.join(ROOT, "runs"))
     ap.add_argument("--max-epochs", type=int, default=1_000_000)
     ap.add_argument("--backend", choices=["numba", "torch"], default="numba")
+    ap.add_argument("--init", choices=["normal", "scaled"], default="normal",
+                    help="initialisation of the border-rank model (see matmulnet.train)")
     a = ap.parse_args()
     env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
                NUMBA_NUM_THREADS="1")
@@ -67,7 +71,7 @@ def main():
             code = subprocess.call(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         return name, "done" if code == 0 else f"FAILED (exit code {code})"
 
-    todo = configurations(a.experiment)
+    todo = configurations(a.experiment, a.init)
     with ThreadPoolExecutor(a.jobs) as pool:
         for i, (name, status) in enumerate(pool.map(run, todo), 1):
             print(f"[{i}/{len(todo)}] {name}: {status}", flush=True)

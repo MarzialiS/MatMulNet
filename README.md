@@ -43,7 +43,10 @@ The protocol is the same for every experiment:
 - training set of 10,000 and validation set of 1,000 triples `(A, B, AB)`, with the entries of
   `A` and `B` uniform in `[-1, 1]`; both sets are drawn once, and the training set is reshuffled
   at every epoch;
-- all parameters initialised independently from `N(0, 1)`;
+- all parameters initialised independently from `N(0, 1)` (`--init normal`, the default). For
+  the border-rank model, `--init scaled` instead draws the coefficient of `ε^e` from `N(0, 1)`
+  divided by `ε_0^e`, with `ε_0 = 1e-1` the initial value of `ε`, so that all monomials have
+  unit size when training starts;
 - loss: mean squared error per entry of the predicted product;
 - Adam, mini-batches of 32, gradient norm clipped at 10;
 - learning rate `1e-4`, halved when the validation loss has stopped improving for 15 epochs,
@@ -79,7 +82,10 @@ that the two produce the same trajectory up to rounding.
 
 Each configuration is run seven times, with seeds 1 to 7. Runs are independent single-threaded
 processes; `--jobs` sets how many run at once. Finished runs are skipped and interrupted ones
-resume, so the same command can be issued again at any time.
+resume, so the same command can be issued again at any time. `border --init scaled` runs the
+border-rank sweep with the scaled initialisation; its runs are stored next to the others (with
+`_scaled` in the name), and `analysis/stats.py border` and `analysis/figures.py border` take the
+same `--init` option to select them.
 
 ## Analysis
 

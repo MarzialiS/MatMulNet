@@ -133,8 +133,8 @@ def rank(path):
             print(f"  r = {r}: " + " ".join(f"{x:.4f}" for x in v))
 
 
-def border(path):
-    rows = load(path, n=3, border=1)
+def border(path, init="normal"):
+    rows = [r for r in load(path, n=3, border=1) if r.get("init", "normal") == init]
     ranges = sorted({(int(r["d_min"]), int(r["d_max"])) for r in rows}, reverse=True)
     cells = {rg: groups([r for r in rows if (int(r["d_min"]), int(r["d_max"])) == rg], "rank")
              for rg in ranges}
@@ -185,11 +185,15 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("what", choices=["calibration", "rank", "border", "precision"])
     ap.add_argument("--results", default="results.csv")
+    ap.add_argument("--init", choices=["normal", "scaled"], default="normal",
+                    help="which border-rank runs to analyse")
     a = ap.parse_args()
     if a.what == "precision":
         precision()
+    elif a.what == "border":
+        border(a.results, a.init)
     else:
-        {"calibration": calibration, "rank": rank, "border": border}[a.what](a.results)
+        {"calibration": calibration, "rank": rank}[a.what](a.results)
 
 
 if __name__ == "__main__":

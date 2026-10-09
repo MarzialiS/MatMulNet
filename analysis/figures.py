@@ -30,12 +30,13 @@ plt.rcParams.update({
 })
 
 
-def losses(path, border):
+def losses(path, border, init="normal"):
     """{(rank, d_min, d_max): sorted best validation losses} for the 3x3 runs."""
     d = {}
     with open(path, newline="") as fh:
         for row in csv.DictReader(fh):
-            if int(row["n"]) == 3 and int(row["border"]) == border:
+            if (int(row["n"]) == 3 and int(row["border"]) == border
+                    and (not border or row.get("init", "normal") == init)):
                 key = (int(row["rank"]), int(row["d_min"]), int(row["d_max"]))
                 d.setdefault(key, []).append(float(row["best_val_loss"]))
     return {k: np.sort(v) for k, v in d.items()}
@@ -100,8 +101,8 @@ def rank(results, out):
         save(fig, out, "rank_strip_log" if log else "rank_strip_linear")
 
 
-def border(results, out):
-    L = losses(results, 1)
+def border(results, out, init="normal"):
+    L = losses(results, 1, init)
     ranges = sorted({k[1:] for k in L}, reverse=True)
     ranks = sorted({k[0] for k in L})
     fig, axes = plt.subplots(1, len(ranges), figsize=(2.2 * len(ranges), 2.6), sharey=True,
@@ -199,12 +200,14 @@ def main():
     ap.add_argument("--results", default="results.csv")
     ap.add_argument("--r22", default="refinement_r22", help="refinement output for r = 22")
     ap.add_argument("--r23", default="refinement_r23", help="refinement output for r = 23")
+    ap.add_argument("--init", choices=["normal", "scaled"], default="normal",
+                    help="which border-rank runs to plot")
     ap.add_argument("--out", default="figures")
     a = ap.parse_args()
     if a.what == "rank":
         rank(a.results, a.out)
     elif a.what == "border":
-        border(a.results, a.out)
+        border(a.results, a.out, a.init)
     else:
         frontier(a.r22, a.r23, a.out)
 

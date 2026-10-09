@@ -8,7 +8,7 @@ import glob
 import json
 import os
 
-FIELDS = ["run", "n", "rank", "border", "d_min", "d_max", "seed", "best_val_loss", "best_epoch",
+FIELDS = ["run", "n", "rank", "border", "d_min", "d_max", "seed", "init", "best_val_loss", "best_epoch",
           "epsilon_at_best", "rho", "weight", "epochs_done", "max_epochs"]
 
 
