@@ -1,0 +1,26 @@
+{
+  "n": 4,
+  "rank": 48,
+  "degrees": [
+    0
+  ],
+  "border": false,
+  "seed": 3,
+  "init": "normal",
+  "max_epochs": 1000000,
+  "backend": "numba",
+  "init_from": null,
+  "precision": "float64",
+  "best_val_loss": 0.03587069924612134,
+  "best_epoch": 999999,
+  "epsilon_at_best": 1.0,
+  "rho": 0.2792547355979769,
+  "weight": 1431.5249792126874,
+  "last_val_loss": 0.03587252706368387,
+  "epsilon_at_last": 1.0,
+  "last_rho": 0.279255696498246,
+  "last_weight": 1431.5254684531424,
+  "epochs_done": 1000000,
+  "updates": 313000000,
+  "seconds": 10937.357203960419
+}

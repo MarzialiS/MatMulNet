@@ -1,0 +1,29 @@
+{
+  "n": 4,
+  "rank": 46,
+  "degrees": [
+    -1,
+    0,
+    1,
+    2
+  ],
+  "border": true,
+  "seed": 1,
+  "init": "normal",
+  "max_epochs": 1000000,
+  "backend": "numba",
+  "init_from": "/home/giacomo/.claude/jobs/314bdf00/tmp/schemes/smirnov46.npz",
+  "precision": "float64",
+  "best_val_loss": 0.0004766105772309805,
+  "best_epoch": 52461,
+  "epsilon_at_best": 0.0785380293682595,
+  "rho": 0.03314198393151342,
+  "weight": 101529.19587364624,
+  "last_val_loss": 31402805.838223018,
+  "epsilon_at_last": 0.0010000046051807901,
+  "last_rho": 8390.040323128474,
+  "last_weight": 47549010777.885345,
+  "epochs_done": 1000000,
+  "updates": 313000000,
+  "seconds": 20132.526642799377
+}
