@@ -74,9 +74,11 @@ wandb`).
 `matmulnet/reference_torch.py` is the PyTorch implementation: an `nn.Module`, autograd,
 `clip_grad_norm_`, `torch.optim.Adam`. `matmulnet/kernels.py` computes the same epoch in a
 single compiled function (numba), with the gradient written out by hand; it is the default
-because it is more than an order of magnitude faster for models this small: about 1 ms per
-epoch for `2 x 2`, 4–6 ms for `3 x 3` and 9–14 ms for `4 x 4` on one core of a laptop CPU,
-i.e. one to four hours for a `10^6`-epoch run. Select the implementation with `--backend numba|torch`. The tests check
+because it is more than an order of magnitude faster for models this small: about 0.5 ms per
+epoch for `2 x 2`, 3–4.5 ms for `3 x 3` and 9–13 ms for `4 x 4` on one performance core of an
+Intel Core i9-13900K (about twice as long on an efficiency core), i.e. up to four hours for a
+`10^6`-epoch run. The kernel is compiled for the sizes of the run when the run starts (about two
+seconds). Select the implementation with `--backend numba|torch`. The tests check
 that the two produce the same trajectory up to rounding.
 
 ## The sweeps
@@ -91,7 +93,10 @@ that the two produce the same trajectory up to rounding.
 
 Each configuration is run seven times, with seeds 1 to 7; `--ranks` and `--seeds` select a
 subset or other values. Runs are independent single-threaded
-processes; `--jobs` sets how many run at once. Finished runs are skipped and interrupted ones
+processes, each pinned to its own physical core: `--cpus` chooses the cores (`all`, the default,
+one per physical core; `p` or `e`, only the performance or the efficiency cores of a hybrid Intel
+CPU; or a list such as `0,2,4-7`), performance cores first, and `--jobs` runs fewer at once (for
+instance on a shared machine). Finished runs are skipped and interrupted ones
 resume, so the same command can be issued again at any time. `border --init scaled` runs the
 border-rank sweep with the scaled initialisation; its runs are stored next to the others (with
 `_scaled` in the name), and `analysis/stats.py border` and `analysis/figures.py border` take the
@@ -152,7 +157,8 @@ records `ρ` against the gauge-invariant weight `W = Σ_s ||h_s|| ||k_s|| ||f_s|
 `frontier.csv`, saves the factors of every level, and stops when `ρ` falls below the
 double-precision cancellation level of the current solution. `--max-seconds` bounds the time
 spent on each level and `--threads` sets the threads of the linear algebra (useful from
-`4 x 4` on, where an iteration solves a system with a few thousand unknowns). The method is local: the values
+`4 x 4` on, where an iteration solves a system with a few thousand unknowns: there 4 threads
+are about three times as fast as one, and more threads gain little). The method is local: the values
 are those reached along the warm-started branch, not global minima over the boxes.
 
 ## Pseudo-arclength continuation
