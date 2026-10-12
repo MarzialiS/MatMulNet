@@ -183,3 +183,7 @@ decomposition is `(h_s, k_s, f_s) = (H[:, s], K[:, s], F[s, :])`, the represente
 `T[a, b, c] = Σ_s H[a, s] K[b, s] F[s, c]`, and `M_n[n·i+j, n·j+k, n·i+k] = 1`. In the
 border-rank model the parameters are coefficient tensors whose last axis is indexed by the
 exponent, `H(ε) = Σ_e ε^e H_coeff[:, :, e − d_min]`, and likewise for `K` and `F`.
+
+## Licence
+
+MIT, see `LICENSE`.
