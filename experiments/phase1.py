@@ -8,7 +8,7 @@
 
 Starting points (`starts`), for seeds 1-5:
   noise   the scheme plus Gaussian noise of standard deviation sigma times the r.m.s. of its
-          non-zero coefficients, sigma in 0.1, 0.2, 0.3, 0.5, 1;
+          non-zero coefficients, sigma in 0.1, 0.2, 0.3, 0.5, 0.7, 1;
   interp  (1 - t) times the scheme plus t times a random point drawn as a training run draws its
           initial point (N(0, 1)), t in 0.1, ..., 0.9.
 A start is "solved" when the end point has rho < 1e-10 with weight W below W_MAX (a bounded
@@ -43,7 +43,7 @@ from sweep import cpu_pool  # noqa: E402
 
 from matmulnet import metrics  # noqa: E402
 
-SIGMAS = [0.1, 0.2, 0.3, 0.5, 1.0]
+SIGMAS = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
 TS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 SEEDS = [1, 2, 3, 4, 5]
 RHO_OK, W_MAX = 1e-10, 1e4         # W of the rational 48-term scheme: 210.5
