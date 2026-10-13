@@ -1,0 +1,26 @@
+{
+  "n": 4,
+  "rank": 49,
+  "degrees": [
+    0
+  ],
+  "border": false,
+  "seed": 1,
+  "init": "normal",
+  "max_epochs": 20000,
+  "backend": "numba",
+  "init_from": "/home/giacomo/.claude/jobs/314bdf00/tmp/schemes/strassen49_s1e-3.npz",
+  "precision": "float64",
+  "best_val_loss": 8.444377176754203e-13,
+  "best_epoch": 133,
+  "epsilon_at_best": 1.0,
+  "rho": 1.3777370428708876e-06,
+  "weight": 219.80905425623334,
+  "last_val_loss": 1.5763501374690278e-10,
+  "epsilon_at_last": 1.0,
+  "last_rho": 1.8905351335486213e-05,
+  "last_weight": 219.80250280620572,
+  "epochs_done": 20000,
+  "updates": 6260000,
+  "seconds": 314.5994334220886
+}

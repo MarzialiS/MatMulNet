@@ -1,0 +1,463 @@
+<title>MatMulNet 4×4</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:wght@500&display=swap">
+<style>/* layout: one reading column of numbered tables and figures, section by experiment */
+:root{
+  --bg:#f7f8fa; --panel:#ffffff; --fg:#1b2330; --muted:#5b6676; --rule:#d9dee6; --accent:#1f4e8c;
+  --a1:#9cc3ea; --a2:#6aa3dc; --a3:#3d82c6; --a4:#1f5fa3; --a5:#0f3b70;
+  --b1:#f2b872; --b2:#e3923a; --b3:#c26a12; --b4:#8a4505;
+  --c1:#2a6fb5; --c2:#d07a1b; --c3:#a0338f; --c4:#2f8f5b; --mean:#c0262d;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --serif:"IBM Plex Serif",Georgia,serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#11151c; --panel:#181d26; --fg:#e4e8ef; --muted:#9aa5b5; --rule:#2c3440; --accent:#8fb8ea;
+  --a1:#2f5d8c; --a2:#4a82bd; --a3:#6aa3dc; --a4:#97c2ec; --a5:#cfe3f7;
+  --b1:#8a5a1e; --b2:#c2811f; --b3:#eaa94a; --b4:#f7d39a;
+  --c1:#6aa3dc; --c2:#eaa94a; --c3:#d680c8; --c4:#5fc48e; --mean:#f0676d; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#11151c; --panel:#181d26; --fg:#e4e8ef; --muted:#9aa5b5; --rule:#2c3440; --accent:#8fb8ea;
+  --a1:#2f5d8c; --a2:#4a82bd; --a3:#6aa3dc; --a4:#97c2ec; --a5:#cfe3f7;
+  --b1:#8a5a1e; --b2:#c2811f; --b3:#eaa94a; --b4:#f7d39a;
+  --c1:#6aa3dc; --c2:#eaa94a; --c3:#d680c8; --c4:#5fc48e; --mean:#f0676d; color-scheme:dark }
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+main{max-width:920px;margin:0 auto;padding-inline:20px;padding-block:36px 56px;display:flex;flex-direction:column;gap:44px}
+header{display:flex;flex-direction:column;gap:10px}
+.eyebrow{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{margin:0;font-family:var(--serif);font-weight:500;font-size:clamp(24px,4.2vw,34px);line-height:1.15;text-wrap:balance}
+.lede{margin:0;max-width:66ch;color:var(--muted)}
+nav{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;font-size:14px}
+a{color:var(--accent)} a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+section{display:flex;flex-direction:column;gap:28px;min-width:0}
+h2{margin:0;font-family:var(--serif);font-weight:500;font-size:22px;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+figure{margin:0;display:flex;flex-direction:column;gap:10px;min-width:0}
+figcaption{font-size:14.5px;max-width:74ch} figcaption b{font-weight:600}
+.cap{margin:0;font-size:13px;color:var(--muted);max-width:78ch}
+.scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 12px;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap;vertical-align:top}
+th{font-weight:600;font-size:12.5px;color:var(--muted);vertical-align:bottom;line-height:1.3}
+td{font-family:var(--mono);font-size:13px}
+th:first-child,td:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:0}
+small{font-size:11.5px;color:var(--muted);font-weight:400}
+table.kv td{font-family:var(--sans);white-space:normal;text-align:left;font-size:13.5px} table.kv td:first-child{color:var(--muted);white-space:nowrap}
+#tab2 td{white-space:normal;min-width:120px} #tab2 td:first-child{font-family:var(--sans)} #tab9 td:first-child{font-family:var(--sans)}
+svg{display:block;width:100%;min-width:560px;height:auto}
+svg text{font-family:var(--sans);fill:var(--muted)} .tick{font-size:12px} .lab{font-size:12.5px;fill:var(--fg)}
+.grid{stroke:var(--rule);stroke-width:1} .axis{stroke:var(--muted);stroke-width:1}
+.ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 4}
+.ln{stroke-width:2;stroke-linejoin:round;stroke-linecap:round} .ln.dash{stroke-dasharray:6 5}
+.dot{stroke:var(--panel);stroke-width:1} .mean{stroke:var(--mean);stroke-width:2.5;stroke-linecap:round}
+.a1{stroke:var(--a1)}.a2{stroke:var(--a2)}.a3{stroke:var(--a3)}.a4{stroke:var(--a4)}.a5{stroke:var(--a5)}
+.b1{stroke:var(--b1)}.b2{stroke:var(--b2)}.b3{stroke:var(--b3)}.b4{stroke:var(--b4)}
+.c1{stroke:var(--c1)}.c2{stroke:var(--c2)}.c3{stroke:var(--c3)}.c4{stroke:var(--c4)}
+.dot.a1{fill:var(--a1)}.dot.a2{fill:var(--a2)}.dot.a3{fill:var(--a3)}.dot.a4{fill:var(--a4)}.dot.a5{fill:var(--a5)}
+.dot.b1{fill:var(--b1)}.dot.b2{fill:var(--b2)}.dot.b3{fill:var(--b3)}.dot.b4{fill:var(--b4)}
+.dot.c1{fill:var(--c1)}.dot.c2{fill:var(--c2)}.dot.c3{fill:var(--c3)}.dot.c4{fill:var(--c4)}
+.dot{stroke:var(--panel)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:18px;height:0;border-top:3px solid var(--muted)} .sw.dash{border-top-style:dashed}
+.sw.a1{border-color:var(--a1)}.sw.a2{border-color:var(--a2)}.sw.a3{border-color:var(--a3)}.sw.a4{border-color:var(--a4)}.sw.a5{border-color:var(--a5)}
+.sw.b1{border-color:var(--b1)}.sw.b2{border-color:var(--b2)}.sw.b3{border-color:var(--b3)}.sw.b4{border-color:var(--b4)}
+.sw.c1{border-color:var(--c1)}.sw.c2{border-color:var(--c2)}.sw.c3{border-color:var(--c3)}.sw.c4{border-color:var(--c4)}.sw.meansw{border-color:var(--mean)}
+.mono{font-family:var(--mono);font-size:.93em}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--rule);padding-top:14px}
+</style>
+<main>
+<header>
+<p class="eyebrow">MatMulNet · esperimenti del 9–12 ottobre 2026</p>
+<h1>Moltiplicazione di matrici 4×4: tabelle e figure</h1>
+<p class="lede">Training, verifica del limite in ε e raffinamento vincolato sul tensore M<sub>4</sub>, con il protocollo degli esperimenti 3×3. Riferimenti noti: 34 ≤ R(M<sub>4</sub>) ≤ 48 e 29 ≤ <u>R</u>(M<sub>4</sub>) ≤ 46.</p>
+<nav><a href="#sec-setup">Protocollo</a><a href="#sec-rank">Rango</a><a href="#sec-border">Rango di bordo</a><a href="#sec-ref">Raffinamento</a></nav>
+</header>
+
+<section id="sec-setup"><h2>Protocollo e controlli</h2>
+<figure id="tab1"><figcaption><b>Tabella 1.</b> Protocollo comune a tutte le run.</figcaption><div class="scroll"><table class="kv"><thead><tr><th>voce</th><th>valore</th></tr></thead><tbody><tr><td>dati</td><td>10.000 triple di training e 1.000 di validazione (A, B, AB), entrate uniformi in [−1, 1], estratte una volta</td></tr><tr><td>ottimizzazione</td><td>Adam, batch 32, norma del gradiente limitata a 10; 313 aggiornamenti per epoca</td></tr><tr><td>learning rate</td><td>10⁻⁴, dimezzato sui plateau della loss di validazione (pazienza 15), minimo 10⁻⁶</td></tr><tr><td>durata</td><td>10⁶ epoche per run</td></tr><tr><td>inizializzazione</td><td>rango: N(0, 1). Bordo: coefficiente di ε<sup>e</sup> da N(0, 1) diviso per 0,1<sup>e</sup></td></tr><tr><td>modello di bordo</td><td>H, K, F polinomi di Laurent in ε con esponenti da −1 a 2; ε da 10⁻¹ a 10⁻³ con decadimento esponenziale</td></tr><tr><td>aritmetica</td><td>doppia precisione</td></tr><tr><td>quantità riportate</td><td>miglior loss di validazione; ρ = ‖T − M<sub>4</sub>‖ / ‖M<sub>4</sub>‖ su tutte le 4096 entrate; W = Σ<sub>s</sub> ‖h<sub>s</sub>‖‖k<sub>s</sub>‖‖f<sub>s</sub>‖</td></tr><tr><td>relazione loss–residuo</td><td>per matrici 4×4 con entrate uniformi in [−1, 1] la loss attesa è 4ρ²/9</td></tr></tbody></table></div></figure>
+<figure id="tab2"><figcaption><b>Tabella 2.</b> Schemi noti usati come controllo: residuo dello schema, training avviato dallo schema perturbato, raffinamento.</figcaption><div class="scroll"><table class=""><thead><tr><th>schema</th><th>ρ dello schema</th><th>loss migliore dopo 20.000 epoche<br><small>rumore relativo 10⁻³ · 10⁻² · 10⁻¹</small></th><th>raffinamento con il solo vincolo c = 2<br><small>dallo schema perturbato dell'1%</small></th><th>catena completa da c = 0,1 a c = 25<br><small>dallo schema perturbato dell'1%</small></th></tr></thead><tbody><tr><td>Strassen ⊗ Strassen, 49 termini</td><td>0</td><td>8,4×10⁻¹³ · 6,5×10⁻¹¹ · 2,5×10⁻¹²</td><td>7,4×10⁻¹⁶ <small>(11 iterazioni)</small></td><td>0,2165 <small>(W = 5,2×10⁴)</small></td></tr><tr><td>Dumas–Pernet–Sedoglavic, 48 termini</td><td>0</td><td>5,4×10⁻¹⁴ · 4,3×10⁻¹⁴ · 3,1×10⁻¹⁴</td><td>7,8×10⁻¹⁶ <small>(6 iterazioni)</small></td><td>0,2500 <small>(W = 5,7×10⁴)</small></td></tr><tr><td>Smirnov, 46 termini, esponenti −1…2</td><td>0,76·ε<br><small>gradi negativi nulli, grado zero = M<sub>4</sub></small></td><td>4,8×10⁻⁴ a ε = 0,079, poi 3,1×10⁷ a fine run<br><small>10⁶ epoche, senza rumore</small></td><td>—</td><td>—</td></tr></tbody></table></div><p class="cap">Fonti: catalogo fmm.univ-lille.fr (48 termini, arXiv:2506.13242) e arXiv:1412.1687 (46 termini). Lo schema a 49 termini è il prodotto di Kronecker dello schema di Strassen con sé stesso.</p></figure>
+<figure id="tab3"><figcaption><b>Tabella 3.</b> Tempi di calcolo, un core per run.</figcaption><div class="scroll"><table class=""><thead><tr><th>sweep</th><th>run</th><th>ms per epoca</th><th>ore per run</th><th>aggiornamenti per run</th></tr></thead><tbody><tr><td>rango, r = 45…64</td><td>42</td><td>11,9</td><td>3,3</td><td>313.000.000</td></tr><tr><td>bordo, r = 44…47</td><td>28</td><td>19,4</td><td>5,4</td><td>313.000.000</td></tr></tbody></table></div></figure>
+</section>
+
+<section id="sec-rank"><h2>Rango</h2>
+<figure id="fig1"><figcaption><b>Figura 1.</b> Miglior loss di validazione per run, modello di rango.</figcaption><div class="scroll"><svg viewBox="0 0 660 380" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="334.0" y2="334.0"/>
+<text class="tick" x="54" y="338.0" text-anchor="end">10⁻⁵</text>
+<line class="grid" x1="62" x2="626" y1="259.6" y2="259.6"/>
+<text class="tick" x="54" y="263.6" text-anchor="end">10⁻⁴</text>
+<line class="grid" x1="62" x2="626" y1="185.2" y2="185.2"/>
+<text class="tick" x="54" y="189.2" text-anchor="end">10⁻³</text>
+<line class="grid" x1="62" x2="626" y1="110.8" y2="110.8"/>
+<text class="tick" x="54" y="114.8" text-anchor="end">10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="36.4" y2="36.4"/>
+<text class="tick" x="54" y="40.4" text-anchor="end">10⁻¹</text>
+<line class="axis" x1="89.7" x2="89.7" y1="334" y2="339"/>
+<text class="tick" x="89.7" y="354" text-anchor="middle">45</text>
+<line class="axis" x1="136.0" x2="136.0" y1="334" y2="339"/>
+<text class="tick" x="136.0" y="354" text-anchor="middle">46</text>
+<line class="axis" x1="182.2" x2="182.2" y1="334" y2="339"/>
+<text class="tick" x="182.2" y="354" text-anchor="middle">47</text>
+<line class="axis" x1="228.4" x2="228.4" y1="334" y2="339"/>
+<text class="tick" x="228.4" y="354" text-anchor="middle">48</text>
+<line class="axis" x1="274.7" x2="274.7" y1="334" y2="339"/>
+<text class="tick" x="274.7" y="354" text-anchor="middle">49</text>
+<line class="axis" x1="320.9" x2="320.9" y1="334" y2="339"/>
+<text class="tick" x="320.9" y="354" text-anchor="middle">50</text>
+<line class="axis" x1="367.1" x2="367.1" y1="334" y2="339"/>
+<text class="tick" x="367.1" y="354" text-anchor="middle">51</text>
+<line class="axis" x1="413.3" x2="413.3" y1="334" y2="339"/>
+<text class="tick" x="413.3" y="354" text-anchor="middle">52</text>
+<line class="axis" x1="459.6" x2="459.6" y1="334" y2="339"/>
+<text class="tick" x="459.6" y="354" text-anchor="middle">54</text>
+<line class="axis" x1="505.8" x2="505.8" y1="334" y2="339"/>
+<text class="tick" x="505.8" y="354" text-anchor="middle">56</text>
+<line class="axis" x1="552.0" x2="552.0" y1="334" y2="339"/>
+<text class="tick" x="552.0" y="354" text-anchor="middle">60</text>
+<line class="axis" x1="598.3" x2="598.3" y1="334" y2="339"/>
+<text class="tick" x="598.3" y="354" text-anchor="middle">64</text>
+<line class="axis" x1="62" x2="626" y1="334" y2="334"/>
+<text class="lab" x="344.0" y="374" text-anchor="middle">numero di termini r</text>
+<text class="lab" transform="translate(14 174.0) rotate(-90)" text-anchor="middle">loss di validazione (migliore)</text>
+<circle class="dot c1" cx="78.6" cy="51.8" r="4"/>
+<circle class="dot c1" cx="82.3" cy="51.1" r="4"/>
+<circle class="dot c1" cx="86.0" cy="55.5" r="4"/>
+<circle class="dot c1" cx="89.7" cy="56.3" r="4"/>
+<circle class="dot c1" cx="93.4" cy="57.6" r="4"/>
+<circle class="dot c1" cx="97.1" cy="63.4" r="4"/>
+<circle class="dot c1" cx="100.8" cy="56.8" r="4"/>
+<line class="mean" x1="78.7" x2="100.7" y1="55.8" y2="55.8"/>
+<circle class="dot c1" cx="124.9" cy="57.7" r="4"/>
+<circle class="dot c1" cx="128.6" cy="58.6" r="4"/>
+<circle class="dot c1" cx="132.3" cy="58.9" r="4"/>
+<circle class="dot c1" cx="136.0" cy="69.8" r="4"/>
+<circle class="dot c1" cx="139.7" cy="58.2" r="4"/>
+<circle class="dot c1" cx="143.4" cy="63.5" r="4"/>
+<circle class="dot c1" cx="147.1" cy="66.1" r="4"/>
+<line class="mean" x1="125.0" x2="147.0" y1="61.5" y2="61.5"/>
+<circle class="dot c1" cx="171.1" cy="75.2" r="4"/>
+<circle class="dot c1" cx="174.8" cy="70.3" r="4"/>
+<circle class="dot c1" cx="178.5" cy="73.5" r="4"/>
+<circle class="dot c1" cx="182.2" cy="64.0" r="4"/>
+<circle class="dot c1" cx="185.9" cy="74.6" r="4"/>
+<circle class="dot c1" cx="189.6" cy="66.1" r="4"/>
+<circle class="dot c1" cx="193.3" cy="72.8" r="4"/>
+<line class="mean" x1="171.2" x2="193.2" y1="70.7" y2="70.7"/>
+<circle class="dot c1" cx="217.3" cy="74.1" r="4"/>
+<circle class="dot c1" cx="221.0" cy="70.5" r="4"/>
+<circle class="dot c1" cx="224.7" cy="69.5" r="4"/>
+<circle class="dot c1" cx="228.4" cy="79.5" r="4"/>
+<circle class="dot c1" cx="232.1" cy="77.1" r="4"/>
+<circle class="dot c1" cx="235.8" cy="68.7" r="4"/>
+<circle class="dot c1" cx="239.5" cy="71.1" r="4"/>
+<line class="mean" x1="217.4" x2="239.4" y1="72.7" y2="72.7"/>
+<circle class="dot c1" cx="263.6" cy="76.8" r="4"/>
+<circle class="dot c1" cx="267.3" cy="69.6" r="4"/>
+<circle class="dot c1" cx="271.0" cy="79.9" r="4"/>
+<circle class="dot c1" cx="274.7" cy="82.6" r="4"/>
+<circle class="dot c1" cx="278.4" cy="76.5" r="4"/>
+<circle class="dot c1" cx="282.1" cy="87.7" r="4"/>
+<circle class="dot c1" cx="285.8" cy="86.7" r="4"/>
+<line class="mean" x1="263.7" x2="285.7" y1="79.4" y2="79.4"/>
+<circle class="dot c2" cx="320.9" cy="85.5" r="4"/>
+<circle class="dot c2" cx="367.1" cy="177.4" r="4"/>
+<circle class="dot c2" cx="413.3" cy="186.3" r="4"/>
+<circle class="dot c2" cx="459.6" cy="284.4" r="4"/>
+<circle class="dot c2" cx="505.8" cy="115.5" r="4"/>
+<circle class="dot c2" cx="552.0" cy="254.7" r="4"/>
+<circle class="dot c2" cx="598.3" cy="153.1" r="4"/>
+</svg></div><div class="legend"><span><i class="sw c1"></i>r = 45…49, sette seed per rango</span><span><i class="sw c2"></i>r = 50…64, un seed per rango</span><span><i class="sw meansw"></i>media sui sette seed</span></div><p class="cap">Ogni punto è una run da 10⁶ epoche. La soglia di successo usata nel 3×3 è 10⁻³.</p></figure>
+<figure id="tab4"><figcaption><b>Tabella 4.</b> Modello di rango, r = 45…49: statistiche su sette seed.</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>media</th><th>dev. std.</th><th>minimo</th><th>massimo</th><th>ρ mediano</th><th>ρ minimo</th><th>run sotto 10⁻³</th></tr></thead><tbody><tr><td>45</td><td>5,5×10⁻²</td><td>6,7×10⁻³</td><td>4,3×10⁻²</td><td>6,4×10⁻²</td><td>0,359</td><td>0,313</td><td>0/7</td></tr><tr><td>46</td><td>4,6×10⁻²</td><td>6,4×10⁻³</td><td>3,6×10⁻²</td><td>5,2×10⁻²</td><td>0,336</td><td>0,284</td><td>0/7</td></tr><tr><td>47</td><td>3,5×10⁻²</td><td>4,8×10⁻³</td><td>3,0×10⁻²</td><td>4,3×10⁻²</td><td>0,270</td><td>0,255</td><td>0/7</td></tr><tr><td>48</td><td>3,3×10⁻²</td><td>4,0×10⁻³</td><td>2,6×10⁻²</td><td>3,7×10⁻²</td><td>0,279</td><td>0,255</td><td>0/7</td></tr><tr><td>49</td><td>2,6×10⁻²</td><td>5,3×10⁻³</td><td>2,0×10⁻²</td><td>3,6×10⁻²</td><td>0,240</td><td>0,222</td><td>0/7</td></tr></tbody></table></div></figure>
+<figure id="tab5"><figcaption><b>Tabella 5.</b> Modello di rango, r = 45…49: miglior loss di validazione per seed.</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>seed 1</th><th>seed 2</th><th>seed 3</th><th>seed 4</th><th>seed 5</th><th>seed 6</th><th>seed 7</th></tr></thead><tbody><tr><td>45</td><td>6,2×10⁻²</td><td>6,4×10⁻²</td><td>5,5×10⁻²</td><td>5,4×10⁻²</td><td>5,2×10⁻²</td><td>4,3×10⁻²</td><td>5,3×10⁻²</td></tr><tr><td>46</td><td>5,2×10⁻²</td><td>5,0×10⁻²</td><td>5,0×10⁻²</td><td>3,6×10⁻²</td><td>5,1×10⁻²</td><td>4,3×10⁻²</td><td>4,0×10⁻²</td></tr><tr><td>47</td><td>3,0×10⁻²</td><td>3,5×10⁻²</td><td>3,2×10⁻²</td><td>4,3×10⁻²</td><td>3,1×10⁻²</td><td>4,0×10⁻²</td><td>3,2×10⁻²</td></tr><tr><td>48</td><td>3,1×10⁻²</td><td>3,5×10⁻²</td><td>3,6×10⁻²</td><td>2,6×10⁻²</td><td>2,8×10⁻²</td><td>3,7×10⁻²</td><td>3,4×10⁻²</td></tr><tr><td>49</td><td>2,9×10⁻²</td><td>3,6×10⁻²</td><td>2,6×10⁻²</td><td>2,4×10⁻²</td><td>2,9×10⁻²</td><td>2,0×10⁻²</td><td>2,1×10⁻²</td></tr></tbody></table></div></figure>
+<figure id="tab6"><figcaption><b>Tabella 6.</b> Modello di rango, r = 50…64: un seed per rango.</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>loss migliore</th><th>ρ</th><th>W</th></tr></thead><tbody><tr><td>50</td><td>2,2×10⁻²</td><td>0,224</td><td>1,7×10³</td></tr><tr><td>51</td><td>1,3×10⁻³</td><td>0,053</td><td>3,0×10³</td></tr><tr><td>52</td><td>9,7×10⁻⁴</td><td>0,047</td><td>3,0×10³</td></tr><tr><td>54</td><td>4,6×10⁻⁵</td><td>0,010</td><td>1,7×10³</td></tr><tr><td>56</td><td>8,7×10⁻³</td><td>0,141</td><td>1,7×10³</td></tr><tr><td>60</td><td>1,2×10⁻⁴</td><td>0,016</td><td>2,0×10³</td></tr><tr><td>64</td><td>2,7×10⁻³</td><td>0,078</td><td>2,3×10³</td></tr></tbody></table></div></figure>
+<figure id="fig2"><figcaption><b>Figura 2.</b> Loss di validazione durante il training, modello di rango.</figcaption><div class="scroll"><svg viewBox="0 0 660 380" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="334.0" y2="334.0"/>
+<text class="tick" x="54" y="338.0" text-anchor="end">10⁻⁵</text>
+<line class="grid" x1="62" x2="626" y1="270.0" y2="270.0"/>
+<text class="tick" x="54" y="274.0" text-anchor="end">10⁻⁴</text>
+<line class="grid" x1="62" x2="626" y1="206.0" y2="206.0"/>
+<text class="tick" x="54" y="210.0" text-anchor="end">10⁻³</text>
+<line class="grid" x1="62" x2="626" y1="142.0" y2="142.0"/>
+<text class="tick" x="54" y="146.0" text-anchor="end">10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="78.0" y2="78.0"/>
+<text class="tick" x="54" y="82.0" text-anchor="end">10⁻¹</text>
+<line class="grid" x1="62" x2="626" y1="14.0" y2="14.0"/>
+<text class="tick" x="54" y="18.0" text-anchor="end">1</text>
+<line class="axis" x1="62.0" x2="62.0" y1="334" y2="339"/>
+<text class="tick" x="62.0" y="354" text-anchor="middle">10²</text>
+<line class="axis" x1="203.0" x2="203.0" y1="334" y2="339"/>
+<text class="tick" x="203.0" y="354" text-anchor="middle">10³</text>
+<line class="axis" x1="344.0" x2="344.0" y1="334" y2="339"/>
+<text class="tick" x="344.0" y="354" text-anchor="middle">10⁴</text>
+<line class="axis" x1="485.0" x2="485.0" y1="334" y2="339"/>
+<text class="tick" x="485.0" y="354" text-anchor="middle">10⁵</text>
+<line class="axis" x1="626.0" x2="626.0" y1="334" y2="339"/>
+<text class="tick" x="626.0" y="354" text-anchor="middle">10⁶</text>
+<line class="axis" x1="62" x2="626" y1="334" y2="334"/>
+<text class="lab" x="344.0" y="374" text-anchor="middle">epoca</text>
+<text class="lab" transform="translate(14 174.0) rotate(-90)" text-anchor="middle">loss di validazione</text>
+<path class="ln a1" d="M62.0 48.3 L104.4 56.0 L129.3 59.9 L146.9 62.3 L160.6 64.1 L171.7 65.6 L181.2 66.8 L189.3 67.9 L203.0 70.0 L208.8 70.8 L219.1 72.1 L223.6 72.9 L231.8 75.0 L242.3 78.7 L251.3 81.0 L259.1 83.1 L266.0 84.9 L274.2 86.9 L283.1 88.2 L290.9 88.7 L299.1 89.2 L307.4 89.2 L315.7 89.2 L323.9 89.2 L331.8 89.3 L340.2 89.3 L348.1 89.3 L356.2 89.3 L364.6 89.4 L372.8 89.4 L380.7 89.5 L388.8 89.5 L397.1 89.6 L405.3 89.7 L413.5 89.8 L421.6 89.9 L429.8 90.0 L438.0 90.1 L446.1 90.2 L454.3 90.4 L462.5 90.5 L470.7 90.7 L478.9 90.9 L487.0 91.2 L495.2 91.6 L503.4 92.1 L511.6 92.7 L519.8 93.1 L527.9 93.5 L536.1 93.7 L544.3 94.0 L552.4 94.3 L560.6 94.5 L568.8 94.7 L577.0 94.8 L585.1 94.9 L593.3 95.0 L601.5 95.1 L609.7 95.1 L617.8 95.1 L626.0 95.1" fill="none"/>
+<path class="ln a2" d="M62.0 48.3 L104.4 55.4 L129.3 59.1 L146.9 61.7 L160.6 63.7 L171.7 65.4 L181.2 67.0 L189.3 68.4 L203.0 70.8 L208.8 71.3 L219.1 73.3 L223.6 74.1 L231.8 75.9 L242.3 79.1 L251.3 80.8 L259.1 82.8 L266.0 85.2 L274.2 88.0 L283.1 91.4 L290.9 94.2 L299.1 94.5 L307.4 94.5 L315.7 94.5 L323.9 94.5 L331.8 94.6 L340.2 94.6 L348.1 94.6 L356.2 94.7 L364.6 94.7 L372.8 94.8 L380.7 94.9 L388.8 95.0 L397.1 95.1 L405.3 95.3 L413.5 95.4 L421.6 95.5 L429.8 95.6 L438.0 95.6 L446.1 95.7 L454.3 95.8 L462.5 95.8 L470.7 95.9 L478.9 96.0 L487.0 96.1 L495.2 96.2 L503.4 96.3 L511.6 96.4 L519.8 96.5 L527.9 96.5 L536.1 96.6 L544.3 96.7 L552.4 96.8 L560.6 96.9 L568.8 97.0 L577.0 97.1 L585.1 97.2 L593.3 97.2 L601.5 97.3 L609.7 97.3 L617.8 97.4 L626.0 97.4" fill="none"/>
+<path class="ln a3" d="M62.0 48.9 L104.4 56.1 L129.3 60.1 L146.9 63.2 L160.6 65.5 L171.7 67.4 L181.2 68.6 L189.3 69.7 L203.0 71.9 L208.8 73.2 L219.1 75.4 L223.6 76.4 L231.8 78.7 L242.3 81.2 L251.3 83.4 L259.1 85.9 L266.0 88.7 L274.2 92.5 L283.1 96.1 L290.9 96.6 L299.1 96.7 L307.4 96.7 L315.7 96.7 L323.9 96.7 L331.8 96.8 L340.2 96.8 L348.1 96.8 L356.2 96.9 L364.6 96.9 L372.8 97.0 L380.7 97.1 L388.8 97.1 L397.1 97.2 L405.3 97.3 L413.5 97.4 L421.6 97.5 L429.8 97.6 L438.0 97.8 L446.1 97.9 L454.3 98.1 L462.5 98.3 L470.7 98.4 L478.9 98.6 L487.0 98.8 L495.2 99.0 L503.4 99.2 L511.6 99.5 L519.8 99.7 L527.9 100.2 L536.1 100.8 L544.3 102.8 L552.4 103.7 L560.6 103.9 L568.8 104.8 L577.0 105.7 L585.1 106.5 L593.3 107.1 L601.5 107.7 L609.7 108.3 L617.8 108.8 L626.0 109.3" fill="none"/>
+<path class="ln a4" d="M62.0 48.9 L104.4 57.5 L129.3 61.2 L146.9 64.0 L160.6 66.5 L171.7 68.7 L181.2 70.5 L189.3 72.0 L203.0 74.3 L208.8 75.3 L219.1 77.5 L223.6 78.5 L231.8 80.6 L242.3 84.2 L251.3 88.3 L259.1 91.5 L266.0 93.9 L274.2 96.1 L283.1 98.2 L290.9 102.2 L299.1 102.3 L307.4 102.3 L315.7 102.3 L323.9 102.4 L331.8 102.4 L340.2 102.4 L348.1 102.5 L356.2 102.5 L364.6 102.6 L372.8 102.6 L380.7 102.7 L388.8 102.8 L397.1 102.9 L405.3 103.0 L413.5 103.1 L421.6 103.2 L429.8 103.3 L438.0 103.5 L446.1 103.6 L454.3 103.7 L462.5 103.8 L470.7 104.0 L478.9 104.1 L487.0 104.3 L495.2 104.5 L503.4 104.6 L511.6 104.8 L519.8 105.0 L527.9 105.2 L536.1 105.4 L544.3 105.5 L552.4 105.7 L560.6 105.9 L568.8 106.1 L577.0 106.2 L585.1 106.4 L593.3 106.5 L601.5 106.7 L609.7 106.9 L617.8 107.7 L626.0 107.8" fill="none"/>
+<path class="ln a5" d="M62.0 49.3 L104.4 57.6 L129.3 61.8 L146.9 64.9 L160.6 67.0 L171.7 68.5 L181.2 69.9 L189.3 71.3 L203.0 73.7 L208.8 74.8 L219.1 76.4 L223.6 77.2 L231.8 78.9 L242.3 82.3 L251.3 85.7 L259.1 89.2 L266.0 92.3 L274.2 97.4 L283.1 104.1 L290.9 106.5 L299.1 108.2 L307.4 108.2 L315.7 108.2 L323.9 108.2 L331.8 108.3 L340.2 108.3 L348.1 108.4 L356.2 108.4 L364.6 108.5 L372.8 108.5 L380.7 108.6 L388.8 108.7 L397.1 108.8 L405.3 108.9 L413.5 109.0 L421.6 109.1 L429.8 109.2 L438.0 109.4 L446.1 109.5 L454.3 109.7 L462.5 109.8 L470.7 110.0 L478.9 110.1 L487.0 110.3 L495.2 110.4 L503.4 110.6 L511.6 110.7 L519.8 111.3 L527.9 111.8 L536.1 111.9 L544.3 112.0 L552.4 112.1 L560.6 112.2 L568.8 112.3 L577.0 112.4 L585.1 112.4 L593.3 112.5 L601.5 112.6 L609.7 112.6 L617.8 113.2 L626.0 115.4" fill="none"/>
+<path class="ln b1" d="M62.0 49.4 L104.4 59.1 L129.3 63.3 L146.9 66.3 L160.6 68.8 L171.7 71.0 L181.2 73.3 L189.3 75.4 L203.0 79.5 L208.8 81.5 L219.1 84.9 L223.6 86.1 L231.8 88.3 L242.3 92.5 L251.3 96.9 L259.1 100.2 L266.0 103.3 L274.2 107.3 L283.1 114.2 L290.9 130.3 L299.1 143.6 L307.4 154.2 L315.7 157.3 L323.9 157.5 L331.8 157.6 L340.2 157.7 L348.1 157.9 L356.2 158.1 L364.6 158.4 L372.8 158.6 L380.7 158.9 L388.8 159.2 L397.1 159.6 L405.3 160.0 L413.5 160.5 L421.6 161.0 L429.8 161.6 L438.0 162.2 L446.1 162.9 L454.3 163.7 L462.5 164.5 L470.7 165.5 L478.9 166.5 L487.0 167.6 L495.2 168.8 L503.4 170.1 L511.6 171.5 L519.8 173.1 L527.9 174.7 L536.1 176.4 L544.3 178.2 L552.4 180.2 L560.6 182.2 L568.8 184.2 L577.0 186.3 L585.1 188.4 L593.3 190.6 L601.5 192.7 L609.7 194.9 L617.8 197.1 L626.0 199.2" fill="none"/>
+<path class="ln b2" d="M62.0 50.3 L104.4 59.6 L129.3 65.1 L146.9 69.1 L160.6 72.3 L171.7 74.6 L181.2 76.4 L189.3 77.9 L203.0 80.8 L208.8 82.4 L219.1 85.2 L223.6 86.7 L231.8 90.7 L242.3 97.5 L251.3 105.9 L259.1 116.1 L266.0 126.4 L274.2 155.4 L283.1 185.2 L290.9 206.3 L299.1 218.4 L307.4 218.9 L315.7 219.1 L323.9 219.4 L331.8 219.8 L340.2 220.2 L348.1 220.6 L356.2 221.1 L364.6 221.7 L372.8 222.3 L380.7 223.0 L388.8 223.8 L397.1 224.7 L405.3 225.7 L413.5 226.8 L421.6 228.0 L429.8 229.4 L438.0 231.0 L446.1 232.6 L454.3 234.5 L462.5 236.4 L470.7 238.5 L478.9 240.6 L487.0 242.8 L495.2 245.1 L503.4 247.5 L511.6 249.9 L519.8 252.5 L527.9 255.2 L536.1 257.9 L544.3 260.7 L552.4 263.6 L560.6 266.5 L568.8 269.5 L577.0 272.6 L585.1 275.7 L593.3 278.8 L601.5 281.9 L609.7 285.0 L617.8 288.1 L626.0 291.2" fill="none"/>
+<path class="ln b3" d="M62.0 51.2 L104.4 61.9 L129.3 67.3 L146.9 71.2 L160.6 74.9 L171.7 78.4 L181.2 81.5 L189.3 84.0 L203.0 87.9 L208.8 89.6 L219.1 93.9 L223.6 96.5 L231.8 101.8 L242.3 110.8 L251.3 119.0 L259.1 125.2 L266.0 131.5 L274.2 139.3 L283.1 147.6 L290.9 155.0 L299.1 162.8 L307.4 166.1 L315.7 166.3 L323.9 166.5 L331.8 166.6 L340.2 166.8 L348.1 166.9 L356.2 167.1 L364.6 167.4 L372.8 167.6 L380.7 167.9 L388.8 168.3 L397.1 168.7 L405.3 169.1 L413.5 169.7 L421.6 170.2 L429.8 170.9 L438.0 171.7 L446.1 172.6 L454.3 173.6 L462.5 174.8 L470.7 176.2 L478.9 177.8 L487.0 179.6 L495.2 181.8 L503.4 184.3 L511.6 187.2 L519.8 190.6 L527.9 194.2 L536.1 198.3 L544.3 202.9 L552.4 208.0 L560.6 213.6 L568.8 219.9 L577.0 226.9 L585.1 234.0 L593.3 240.6 L601.5 247.0 L609.7 253.2 L617.8 259.4 L626.0 265.7" fill="none"/>
+<path class="ln b4" d="M62.0 52.6 L104.4 63.4 L129.3 69.1 L146.9 74.7 L160.6 79.3 L171.7 83.2 L181.2 86.8 L189.3 90.0 L203.0 96.2 L208.8 99.8 L219.1 107.6 L223.6 111.4 L231.8 118.9 L242.3 129.4 L251.3 136.3 L259.1 141.5 L266.0 145.9 L274.2 150.0 L283.1 150.8 L290.9 150.9 L299.1 150.9 L307.4 151.0 L315.7 151.1 L323.9 151.1 L331.8 151.2 L340.2 151.3 L348.1 151.4 L356.2 151.6 L364.6 151.7 L372.8 151.9 L380.7 152.1 L388.8 152.3 L397.1 152.5 L405.3 152.8 L413.5 153.1 L421.6 153.4 L429.8 153.7 L438.0 154.1 L446.1 154.6 L454.3 155.0 L462.5 155.6 L470.7 156.1 L478.9 156.8 L487.0 157.4 L495.2 158.2 L503.4 159.0 L511.6 159.8 L519.8 160.8 L527.9 161.8 L536.1 162.8 L544.3 163.9 L552.4 165.1 L560.6 166.4 L568.8 167.8 L577.0 169.2 L585.1 170.7 L593.3 172.2 L601.5 173.7 L609.7 175.2 L617.8 176.8 L626.0 178.4" fill="none"/>
+</svg></div><div class="legend"><span><i class="sw a1"></i>r = 45 (mediana)</span><span><i class="sw a2"></i>r = 46 (mediana)</span><span><i class="sw a3"></i>r = 47 (mediana)</span><span><i class="sw a4"></i>r = 48 (mediana)</span><span><i class="sw a5"></i>r = 49 (mediana)</span><span><i class="sw b1"></i>r = 51</span><span><i class="sw b2"></i>r = 54</span><span><i class="sw b3"></i>r = 60</span><span><i class="sw b4"></i>r = 64</span></div><p class="cap">Per r = 45…49 la curva è la mediana dei sette seed; per gli altri ranghi è il seed 1. Il learning rate raggiunge il minimo 10⁻⁶ entro le prime 10.000 epoche in tutte le run.</p></figure>
+</section>
+
+<section id="sec-border"><h2>Rango di bordo</h2>
+<figure id="fig3"><figcaption><b>Figura 3.</b> Miglior loss di validazione per run, modello di bordo.</figcaption><div class="scroll"><svg viewBox="0 0 660 340" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="294.0" y2="294.0"/>
+<text class="tick" x="54" y="298.0" text-anchor="end">2×10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="223.5" y2="223.5"/>
+<text class="tick" x="54" y="227.5" text-anchor="end">3×10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="134.6" y2="134.6"/>
+<text class="tick" x="54" y="138.6" text-anchor="end">5×10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="76.1" y2="76.1"/>
+<text class="tick" x="54" y="80.1" text-anchor="end">7×10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="14.0" y2="14.0"/>
+<text class="tick" x="54" y="18.0" text-anchor="end">1×10⁻¹</text>
+<line class="axis" x1="142.6" x2="142.6" y1="294" y2="299"/>
+<text class="tick" x="142.6" y="314" text-anchor="middle">44</text>
+<line class="axis" x1="276.9" x2="276.9" y1="294" y2="299"/>
+<text class="tick" x="276.9" y="314" text-anchor="middle">45</text>
+<line class="axis" x1="411.1" x2="411.1" y1="294" y2="299"/>
+<text class="tick" x="411.1" y="314" text-anchor="middle">46</text>
+<line class="axis" x1="545.4" x2="545.4" y1="294" y2="299"/>
+<text class="tick" x="545.4" y="314" text-anchor="middle">47</text>
+<line class="axis" x1="62" x2="626" y1="294" y2="294"/>
+<text class="lab" x="344.0" y="334" text-anchor="middle">numero di termini r</text>
+<text class="lab" transform="translate(14 154.0) rotate(-90)" text-anchor="middle">loss di validazione (migliore)</text>
+<circle class="dot c1" cx="110.3" cy="106.6" r="4"/>
+<circle class="dot c1" cx="121.1" cy="114.7" r="4"/>
+<circle class="dot c1" cx="131.8" cy="55.6" r="4"/>
+<circle class="dot c1" cx="142.6" cy="89.4" r="4"/>
+<circle class="dot c1" cx="153.3" cy="108.9" r="4"/>
+<circle class="dot c1" cx="164.1" cy="109.6" r="4"/>
+<circle class="dot c1" cx="174.8" cy="93.3" r="4"/>
+<line class="mean" x1="131.6" x2="153.6" y1="95.8" y2="95.8"/>
+<circle class="dot c1" cx="244.6" cy="88.5" r="4"/>
+<circle class="dot c1" cx="255.4" cy="124.3" r="4"/>
+<circle class="dot c1" cx="266.1" cy="133.4" r="4"/>
+<circle class="dot c1" cx="276.9" cy="105.0" r="4"/>
+<circle class="dot c1" cx="287.6" cy="117.0" r="4"/>
+<circle class="dot c1" cx="298.3" cy="126.6" r="4"/>
+<circle class="dot c1" cx="309.1" cy="141.7" r="4"/>
+<line class="mean" x1="265.9" x2="287.9" y1="118.7" y2="118.7"/>
+<circle class="dot c1" cx="378.9" cy="87.7" r="4"/>
+<circle class="dot c1" cx="389.7" cy="192.1" r="4"/>
+<circle class="dot c1" cx="400.4" cy="128.5" r="4"/>
+<circle class="dot c1" cx="411.1" cy="133.2" r="4"/>
+<circle class="dot c1" cx="421.9" cy="133.4" r="4"/>
+<circle class="dot c1" cx="432.6" cy="159.6" r="4"/>
+<circle class="dot c1" cx="443.4" cy="116.2" r="4"/>
+<line class="mean" x1="400.1" x2="422.1" y1="133.2" y2="133.2"/>
+<circle class="dot c1" cx="513.2" cy="183.2" r="4"/>
+<circle class="dot c1" cx="523.9" cy="230.6" r="4"/>
+<circle class="dot c1" cx="534.7" cy="184.1" r="4"/>
+<circle class="dot c1" cx="545.4" cy="146.3" r="4"/>
+<circle class="dot c1" cx="556.2" cy="198.2" r="4"/>
+<circle class="dot c1" cx="566.9" cy="149.5" r="4"/>
+<circle class="dot c1" cx="577.7" cy="225.7" r="4"/>
+<line class="mean" x1="534.4" x2="556.4" y1="185.5" y2="185.5"/>
+<circle class="dot c2" cx="327.9" cy="118.7" r="5"/>
+<circle class="dot c2" cx="462.2" cy="149.4" r="5"/>
+<circle class="dot c2" cx="596.5" cy="198.6" r="5"/>
+</svg></div><div class="legend"><span><i class="sw c1"></i>modello di bordo, sette seed per rango</span><span><i class="sw meansw"></i>media sui sette seed</span><span><i class="sw c2"></i>media del modello di rango allo stesso r</span></div><p class="cap">Il best di ogni run è raggiunto a ε compreso fra 0,024 e 0,084.</p></figure>
+<figure id="tab7"><figcaption><b>Tabella 7.</b> Modello di bordo, r = 44…47: statistiche su sette seed e verifica del limite sui best.</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>media</th><th>dev. std.</th><th>minimo</th><th>massimo</th><th>ε al best<br><small>mediana</small></th><th>ρ a quell'ε<br><small>mediana</small></th><th>parte negativa<br><small>mediana</small></th><th>‖T<sub>0</sub> − M<sub>4</sub>‖ / ‖M<sub>4</sub>‖<br><small>mediana</small></th><th>loss a fine run<br><small>mediana</small></th></tr></thead><tbody><tr><td>44</td><td>6,2×10⁻²</td><td>7,8×10⁻³</td><td>5,6×10⁻²</td><td>7,9×10⁻²</td><td>0,039</td><td>0,361</td><td>8,5</td><td>119</td><td>2,8×10⁴</td></tr><tr><td>45</td><td>5,5×10⁻²</td><td>5,8×10⁻³</td><td>4,8×10⁻²</td><td>6,5×10⁻²</td><td>0,046</td><td>0,358</td><td>10,0</td><td>133</td><td>5,5×10⁴</td></tr><tr><td>46</td><td>5,0×10⁻²</td><td>9,3×10⁻³</td><td>3,6×10⁻²</td><td>6,5×10⁻²</td><td>0,041</td><td>0,335</td><td>9,3</td><td>129</td><td>4,4×10⁴</td></tr><tr><td>47</td><td>3,7×10⁻²</td><td>7,1×10⁻³</td><td>2,9×10⁻²</td><td>4,7×10⁻²</td><td>0,043</td><td>0,287</td><td>10,0</td><td>132</td><td>5,6×10⁴</td></tr></tbody></table></div><p class="cap">Con i coefficienti del best tenuti fissi il tensore è T(ε) = Σ<sub>d</sub> ε<sup>d</sup> T<sub>d</sub>. La parte negativa è la norma dei T<sub>d</sub> con d &lt; 0 divisa per ‖M<sub>4</sub>‖. La famiglia converge a M<sub>4</sub> solo se la parte negativa è zero e T<sub>0</sub> = M<sub>4</sub>; per la famiglia di Smirnov entrambe le colonne valgono 0.</p></figure>
+<figure id="tab8"><figcaption><b>Tabella 8.</b> Modello di bordo: miglior loss di validazione per seed, con l'ε a cui è raggiunta.</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>seed 1</th><th>seed 2</th><th>seed 3</th><th>seed 4</th><th>seed 5</th><th>seed 6</th><th>seed 7</th></tr></thead><tbody><tr><td>44</td><td>5,9×10⁻²<br><small>ε = 0,039</small></td><td>5,6×10⁻²<br><small>ε = 0,084</small></td><td>7,9×10⁻²<br><small>ε = 0,029</small></td><td>6,5×10⁻²<br><small>ε = 0,039</small></td><td>5,8×10⁻²<br><small>ε = 0,066</small></td><td>5,8×10⁻²<br><small>ε = 0,024</small></td><td>6,3×10⁻²<br><small>ε = 0,034</small></td></tr><tr><td>45</td><td>6,5×10⁻²<br><small>ε = 0,029</small></td><td>5,3×10⁻²<br><small>ε = 0,062</small></td><td>5,0×10⁻²<br><small>ε = 0,035</small></td><td>5,9×10⁻²<br><small>ε = 0,053</small></td><td>5,5×10⁻²<br><small>ε = 0,041</small></td><td>5,2×10⁻²<br><small>ε = 0,046</small></td><td>4,8×10⁻²<br><small>ε = 0,082</small></td></tr><tr><td>46</td><td>6,5×10⁻²<br><small>ε = 0,044</small></td><td>3,6×10⁻²<br><small>ε = 0,037</small></td><td>5,2×10⁻²<br><small>ε = 0,041</small></td><td>5,0×10⁻²<br><small>ε = 0,048</small></td><td>5,0×10⁻²<br><small>ε = 0,039</small></td><td>4,3×10⁻²<br><small>ε = 0,039</small></td><td>5,6×10⁻²<br><small>ε = 0,047</small></td></tr><tr><td>47</td><td>3,8×10⁻²<br><small>ε = 0,033</small></td><td>2,9×10⁻²<br><small>ε = 0,053</small></td><td>3,8×10⁻²<br><small>ε = 0,030</small></td><td>4,7×10⁻²<br><small>ε = 0,045</small></td><td>3,5×10⁻²<br><small>ε = 0,043</small></td><td>4,6×10⁻²<br><small>ε = 0,028</small></td><td>3,0×10⁻²<br><small>ε = 0,043</small></td></tr></tbody></table></div></figure>
+<figure id="fig4"><figcaption><b>Figura 4.</b> Loss di validazione lungo lo schedule di ε.</figcaption><div class="scroll"><svg viewBox="0 0 660 400" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="331.3" y2="331.3"/>
+<text class="tick" x="54" y="335.3" text-anchor="end">10⁻⁶</text>
+<line class="grid" x1="62" x2="626" y1="286.0" y2="286.0"/>
+<text class="tick" x="54" y="290.0" text-anchor="end">10⁻⁴</text>
+<line class="grid" x1="62" x2="626" y1="240.7" y2="240.7"/>
+<text class="tick" x="54" y="244.7" text-anchor="end">10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="195.3" y2="195.3"/>
+<text class="tick" x="54" y="199.3" text-anchor="end">1</text>
+<line class="grid" x1="62" x2="626" y1="150.0" y2="150.0"/>
+<text class="tick" x="54" y="154.0" text-anchor="end">10²</text>
+<line class="grid" x1="62" x2="626" y1="104.7" y2="104.7"/>
+<text class="tick" x="54" y="108.7" text-anchor="end">10⁴</text>
+<line class="grid" x1="62" x2="626" y1="59.3" y2="59.3"/>
+<text class="tick" x="54" y="63.3" text-anchor="end">10⁶</text>
+<line class="grid" x1="62" x2="626" y1="14.0" y2="14.0"/>
+<text class="tick" x="54" y="18.0" text-anchor="end">10⁸</text>
+<line class="axis" x1="62.0" x2="62.0" y1="354" y2="359"/>
+<text class="tick" x="62.0" y="374" text-anchor="middle">1×10⁻¹</text>
+<line class="axis" x1="209.5" x2="209.5" y1="354" y2="359"/>
+<text class="tick" x="209.5" y="374" text-anchor="middle">3×10⁻²</text>
+<line class="axis" x1="344.0" x2="344.0" y1="354" y2="359"/>
+<text class="tick" x="344.0" y="374" text-anchor="middle">1×10⁻²</text>
+<line class="axis" x1="491.5" x2="491.5" y1="354" y2="359"/>
+<text class="tick" x="491.5" y="374" text-anchor="middle">3×10⁻³</text>
+<line class="axis" x1="626.0" x2="626.0" y1="354" y2="359"/>
+<text class="tick" x="626.0" y="374" text-anchor="middle">1×10⁻³</text>
+<line class="axis" x1="62" x2="626" y1="354" y2="354"/>
+<text class="lab" x="344.0" y="394" text-anchor="middle">ε durante il training (decresce verso destra)</text>
+<text class="lab" transform="translate(14 184.0) rotate(-90)" text-anchor="middle">loss di validazione</text>
+<path class="ln a1" d="M62.1 208.9 L68.4 221.9 L74.7 222.0 L81.1 222.0 L87.4 222.0 L93.8 222.1 L100.1 222.1 L106.4 222.2 L112.8 222.2 L119.1 222.2 L125.4 222.2 L131.8 222.2 L138.1 222.3 L144.5 222.3 L150.8 222.4 L157.1 222.4 L163.5 222.4 L169.8 222.4 L176.1 222.4 L182.5 222.4 L188.8 222.4 L195.1 222.4 L201.5 222.4 L207.8 222.4 L214.1 223.0 L220.5 222.9 L226.8 222.9 L233.1 222.9 L239.5 222.8 L245.8 222.6 L252.1 222.6 L258.5 222.5 L264.8 222.3 L271.1 222.2 L277.5 222.0 L283.8 221.7 L290.2 221.4 L296.5 221.1 L302.8 221.0 L309.2 220.7 L315.5 220.0 L321.8 219.7 L328.2 219.0 L334.5 217.4 L340.8 216.2 L347.2 215.1 L353.5 214.5 L359.8 212.7 L366.2 211.7 L372.5 210.0 L378.9 207.2 L385.2 204.3 L391.5 202.7 L397.9 200.9 L404.2 197.5 L410.6 195.5 L416.9 192.0 L423.2 188.1 L429.6 187.6 L435.9 183.1 L442.2 180.1 L448.6 178.0 L454.9 175.3 L461.3 173.5 L467.6 169.8 L473.9 166.5 L480.3 163.3 L486.6 160.0 L493.0 157.6 L499.3 155.2 L505.6 150.6 L512.0 148.4 L518.3 146.3 L524.6 142.5 L531.0 141.3 L537.3 138.5 L543.6 133.1 L550.0 131.5 L556.3 127.5 L562.7 122.0 L569.0 121.6 L575.3 120.0 L581.7 115.0 L588.0 113.6 L594.3 110.2 L600.7 106.4 L607.0 104.1 L613.3 101.4 L619.7 97.8 L626.0 94.5" fill="none"/>
+<path class="ln a2" d="M62.1 209.0 L68.4 222.9 L74.7 223.2 L81.1 223.3 L87.4 223.4 L93.8 223.4 L100.1 223.5 L106.4 223.5 L112.8 223.6 L119.1 223.7 L125.4 223.7 L131.8 223.7 L138.1 223.7 L144.5 223.7 L150.8 223.8 L157.1 223.7 L163.5 224.1 L169.8 224.1 L176.1 224.1 L182.5 224.1 L188.8 224.1 L195.1 224.1 L201.5 224.0 L207.8 224.0 L214.1 223.8 L220.5 223.8 L226.8 223.8 L233.1 223.6 L239.5 223.6 L245.8 223.4 L252.1 223.4 L258.5 223.3 L264.8 223.1 L271.1 222.9 L277.5 222.8 L283.8 222.1 L290.2 221.7 L296.5 221.3 L302.8 220.7 L309.2 220.2 L315.5 219.6 L321.8 218.2 L328.2 217.3 L334.5 216.3 L340.8 213.6 L347.2 213.0 L353.5 211.0 L359.8 208.0 L366.2 207.4 L372.5 206.1 L378.9 204.3 L385.2 199.4 L391.5 195.2 L397.9 193.3 L404.2 190.9 L410.6 189.2 L416.9 183.0 L423.2 183.2 L429.6 180.1 L435.9 176.6 L442.2 172.7 L448.6 172.2 L454.9 166.9 L461.3 161.7 L467.6 159.6 L473.9 158.3 L480.3 157.3 L486.6 150.8 L493.0 151.7 L499.3 144.1 L505.6 142.8 L512.0 138.9 L518.3 136.6 L524.6 134.9 L531.0 130.5 L537.3 129.7 L543.6 126.6 L550.0 122.0 L556.3 119.6 L562.7 115.5 L569.0 113.9 L575.3 111.0 L581.7 107.2 L588.0 104.4 L594.3 99.5 L600.7 98.8 L607.0 96.2 L613.3 92.9 L619.7 88.7 L626.0 88.0" fill="none"/>
+<path class="ln a4" d="M62.1 208.9 L68.4 223.1 L74.7 223.1 L81.1 223.1 L87.4 223.5 L93.8 223.8 L100.1 224.1 L106.4 224.2 L112.8 224.2 L119.1 224.2 L125.4 224.3 L131.8 224.4 L138.1 224.6 L144.5 224.6 L150.8 224.7 L157.1 224.7 L163.5 224.7 L169.8 224.7 L176.1 224.6 L182.5 224.7 L188.8 224.6 L195.1 224.6 L201.5 224.6 L207.8 224.6 L214.1 224.5 L220.5 224.4 L226.8 224.4 L233.1 224.3 L239.5 224.3 L245.8 224.2 L252.1 224.1 L258.5 223.9 L264.8 223.9 L271.1 223.8 L277.5 223.6 L283.8 223.4 L290.2 223.3 L296.5 223.0 L302.8 222.6 L309.2 222.0 L315.5 221.8 L321.8 220.9 L328.2 220.0 L334.5 217.6 L340.8 216.1 L347.2 214.1 L353.5 213.2 L359.8 210.0 L366.2 208.6 L372.5 206.5 L378.9 204.5 L385.2 202.8 L391.5 199.3 L397.9 196.4 L404.2 193.7 L410.6 189.0 L416.9 188.7 L423.2 185.4 L429.6 181.6 L435.9 179.1 L442.2 176.6 L448.6 172.9 L454.9 171.4 L461.3 166.9 L467.6 163.2 L473.9 162.0 L480.3 159.7 L486.6 155.3 L493.0 152.7 L499.3 150.5 L505.6 146.6 L512.0 142.8 L518.3 140.7 L524.6 137.2 L531.0 134.2 L537.3 132.3 L543.6 128.7 L550.0 125.0 L556.3 122.8 L562.7 120.7 L569.0 115.7 L575.3 114.1 L581.7 109.4 L588.0 106.0 L594.3 104.6 L600.7 101.1 L607.0 98.5 L613.3 95.4 L619.7 92.0 L626.0 90.2" fill="none"/>
+<path class="ln a5" d="M62.1 209.1 L68.4 226.7 L74.7 227.0 L81.1 227.0 L87.4 227.1 L93.8 227.2 L100.1 227.2 L106.4 227.2 L112.8 227.3 L119.1 227.3 L125.4 227.4 L131.8 227.4 L138.1 227.4 L144.5 227.4 L150.8 227.4 L157.1 227.5 L163.5 227.5 L169.8 227.5 L176.1 227.5 L182.5 227.5 L188.8 227.5 L195.1 227.5 L201.5 227.5 L207.8 227.4 L214.1 227.5 L220.5 227.3 L226.8 227.4 L233.1 227.4 L239.5 227.3 L245.8 227.2 L252.1 227.1 L258.5 226.9 L264.8 226.9 L271.1 226.5 L277.5 226.1 L283.8 225.6 L290.2 225.4 L296.5 224.7 L302.8 224.6 L309.2 223.3 L315.5 222.4 L321.8 221.6 L328.2 219.8 L334.5 219.0 L340.8 216.8 L347.2 215.7 L353.5 213.3 L359.8 210.2 L366.2 209.2 L372.5 205.9 L378.9 204.3 L385.2 202.3 L391.5 197.9 L397.9 195.6 L404.2 192.7 L410.6 191.5 L416.9 188.3 L423.2 184.7 L429.6 180.9 L435.9 176.4 L442.2 174.6 L448.6 171.9 L454.9 168.9 L461.3 165.9 L467.6 162.5 L473.9 160.0 L480.3 158.8 L486.6 154.4 L493.0 151.3 L499.3 148.8 L505.6 144.2 L512.0 142.2 L518.3 138.3 L524.6 136.0 L531.0 132.6 L537.3 131.8 L543.6 127.5 L550.0 123.7 L556.3 120.8 L562.7 118.0 L569.0 114.9 L575.3 113.0 L581.7 107.8 L588.0 105.1 L594.3 103.3 L600.7 100.5 L607.0 96.9 L613.3 95.7 L619.7 91.5 L626.0 87.6" fill="none"/>
+<path class="ln c3" d="M62.1 243.6 L68.4 266.5 L74.7 267.9 L81.1 269.0 L87.4 269.5 L93.8 269.1 L100.1 269.1 L106.4 268.4 L112.8 266.8 L119.1 265.1 L125.4 263.6 L131.8 261.7 L138.1 259.7 L144.5 254.9 L150.8 253.2 L157.1 251.7 L163.5 247.1 L169.8 244.0 L176.1 241.2 L182.5 240.2 L188.8 234.8 L195.1 234.3 L201.5 229.9 L207.8 228.4 L214.1 225.2 L220.5 220.1 L226.8 216.9 L233.1 215.3 L239.5 210.6 L245.8 209.6 L252.1 205.7 L258.5 203.5 L264.8 201.0 L271.1 199.0 L277.5 193.6 L283.8 191.5 L290.2 186.6 L296.5 185.9 L302.8 181.7 L309.2 178.4 L315.5 175.1 L321.8 171.2 L328.2 168.3 L334.5 167.4 L340.8 164.1 L347.2 160.0 L353.5 157.8 L359.8 154.9 L366.2 151.4 L372.5 149.3 L378.9 144.8 L385.2 144.7 L391.5 140.3 L397.9 135.4 L404.2 132.7 L410.6 128.1 L416.9 127.0 L423.2 125.0 L429.6 120.3 L435.9 117.8 L442.2 114.4 L448.6 111.7 L454.9 109.5 L461.3 103.9 L467.6 103.8 L473.9 101.3 L480.3 97.3 L486.6 95.1 L493.0 90.4 L499.3 87.2 L505.6 86.1 L512.0 80.5 L518.3 77.3 L524.6 76.9 L531.0 72.5 L537.3 69.3 L543.6 67.6 L550.0 61.5 L556.3 60.7 L562.7 55.9 L569.0 56.8 L575.3 51.3 L581.7 47.4 L588.0 46.9 L594.3 42.0 L600.7 38.3 L607.0 36.7 L613.3 33.2 L619.7 29.2 L626.0 25.4" fill="none"/>
+<path class="ln c4 dash" d="M62.0 253.9 L118.4 263.1 L174.8 272.2 L231.2 281.2 L287.6 290.3 L344.0 299.4 L400.4 308.4 L456.8 317.5 L513.2 326.6 L569.6 335.6 L626.0 344.7" fill="none"/>
+</svg></div><div class="legend"><span><i class="sw a1"></i>r = 44 (mediana di sette seed)</span><span><i class="sw a2"></i>r = 45 (mediana di sette seed)</span><span><i class="sw a4"></i>r = 46 (mediana di sette seed)</span><span><i class="sw a5"></i>r = 47 (mediana di sette seed)</span><span><i class="sw c3"></i>training avviato dalla famiglia di Smirnov, r = 46</span><span><i class="sw c4 dash"></i>famiglia di Smirnov a coefficienti fissi</span></div><p class="cap">La linea tratteggiata è la loss 4ρ²/9 della famiglia di Smirnov valutata allo stesso ε senza alcun training.</p></figure>
+<figure id="fig5"><figcaption><b>Figura 5.</b> Residuo ρ dei best valutati a ε decrescente, a coefficienti fissi.</figcaption><div class="scroll"><svg viewBox="0 0 660 400" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="339.8" y2="339.8"/>
+<text class="tick" x="54" y="343.8" text-anchor="end">10⁻⁶</text>
+<line class="grid" x1="62" x2="626" y1="297.3" y2="297.3"/>
+<text class="tick" x="54" y="301.3" text-anchor="end">10⁻³</text>
+<line class="grid" x1="62" x2="626" y1="254.8" y2="254.8"/>
+<text class="tick" x="54" y="258.8" text-anchor="end">1</text>
+<line class="grid" x1="62" x2="626" y1="212.3" y2="212.3"/>
+<text class="tick" x="54" y="216.3" text-anchor="end">10³</text>
+<line class="grid" x1="62" x2="626" y1="169.8" y2="169.8"/>
+<text class="tick" x="54" y="173.8" text-anchor="end">10⁶</text>
+<line class="grid" x1="62" x2="626" y1="127.3" y2="127.3"/>
+<text class="tick" x="54" y="131.3" text-anchor="end">10⁹</text>
+<line class="grid" x1="62" x2="626" y1="84.8" y2="84.8"/>
+<text class="tick" x="54" y="88.8" text-anchor="end">10¹²</text>
+<line class="grid" x1="62" x2="626" y1="42.3" y2="42.3"/>
+<text class="tick" x="54" y="46.3" text-anchor="end">10¹⁵</text>
+<line class="axis" x1="62.0" x2="62.0" y1="354" y2="359"/>
+<text class="tick" x="62.0" y="374" text-anchor="middle">10⁻¹</text>
+<line class="axis" x1="174.8" x2="174.8" y1="354" y2="359"/>
+<text class="tick" x="174.8" y="374" text-anchor="middle">10⁻²</text>
+<line class="axis" x1="287.6" x2="287.6" y1="354" y2="359"/>
+<text class="tick" x="287.6" y="374" text-anchor="middle">10⁻³</text>
+<line class="axis" x1="400.4" x2="400.4" y1="354" y2="359"/>
+<text class="tick" x="400.4" y="374" text-anchor="middle">10⁻⁴</text>
+<line class="axis" x1="513.2" x2="513.2" y1="354" y2="359"/>
+<text class="tick" x="513.2" y="374" text-anchor="middle">10⁻⁵</text>
+<line class="axis" x1="626.0" x2="626.0" y1="354" y2="359"/>
+<text class="tick" x="626.0" y="374" text-anchor="middle">10⁻⁶</text>
+<line class="axis" x1="62" x2="626" y1="354" y2="354"/>
+<text class="lab" x="344.0" y="394" text-anchor="middle">ε a cui si valutano i coefficienti del best (decresce verso destra)</text>
+<text class="lab" transform="translate(14 184.0) rotate(-90)" text-anchor="middle">residuo relativo ρ</text>
+<path class="ln a1" d="M62.0 222.4 L96.0 228.3 L140.8 214.0 L174.8 197.9 L208.8 184.0 L253.6 166.4 L287.6 153.4 L400.4 110.7 L513.2 68.2 L626.0 25.7" fill="none"/>
+<circle class="dot a1" cx="62.0" cy="222.4" r="3"/>
+<circle class="dot a1" cx="96.0" cy="228.3" r="3"/>
+<circle class="dot a1" cx="140.8" cy="214.0" r="3"/>
+<circle class="dot a1" cx="174.8" cy="197.9" r="3"/>
+<circle class="dot a1" cx="208.8" cy="184.0" r="3"/>
+<circle class="dot a1" cx="253.6" cy="166.4" r="3"/>
+<circle class="dot a1" cx="287.6" cy="153.4" r="3"/>
+<circle class="dot a1" cx="400.4" cy="110.7" r="3"/>
+<circle class="dot a1" cx="513.2" cy="68.2" r="3"/>
+<circle class="dot a1" cx="626.0" cy="25.7" r="3"/>
+<path class="ln a2" d="M62.0 223.9 L96.0 230.0 L140.8 209.9 L174.8 195.1 L208.8 181.5 L253.6 164.1 L287.6 151.2 L400.4 108.5 L513.2 66.0 L626.0 23.5" fill="none"/>
+<circle class="dot a2" cx="62.0" cy="223.9" r="3"/>
+<circle class="dot a2" cx="96.0" cy="230.0" r="3"/>
+<circle class="dot a2" cx="140.8" cy="209.9" r="3"/>
+<circle class="dot a2" cx="174.8" cy="195.1" r="3"/>
+<circle class="dot a2" cx="208.8" cy="181.5" r="3"/>
+<circle class="dot a2" cx="253.6" cy="164.1" r="3"/>
+<circle class="dot a2" cx="287.6" cy="151.2" r="3"/>
+<circle class="dot a2" cx="400.4" cy="108.5" r="3"/>
+<circle class="dot a2" cx="513.2" cy="66.0" r="3"/>
+<circle class="dot a2" cx="626.0" cy="23.5" r="3"/>
+<path class="ln a4" d="M62.0 222.5 L96.0 232.3 L140.8 211.9 L174.8 196.9 L208.8 183.1 L253.6 165.6 L287.6 152.6 L400.4 110.0 L513.2 67.4 L626.0 24.9" fill="none"/>
+<circle class="dot a4" cx="62.0" cy="222.5" r="3"/>
+<circle class="dot a4" cx="96.0" cy="232.3" r="3"/>
+<circle class="dot a4" cx="140.8" cy="211.9" r="3"/>
+<circle class="dot a4" cx="174.8" cy="196.9" r="3"/>
+<circle class="dot a4" cx="208.8" cy="183.1" r="3"/>
+<circle class="dot a4" cx="253.6" cy="165.6" r="3"/>
+<circle class="dot a4" cx="287.6" cy="152.6" r="3"/>
+<circle class="dot a4" cx="400.4" cy="110.0" r="3"/>
+<circle class="dot a4" cx="513.2" cy="67.4" r="3"/>
+<circle class="dot a4" cx="626.0" cy="24.9" r="3"/>
+<path class="ln a5" d="M62.0 222.3 L96.0 232.9 L140.8 210.2 L174.8 195.3 L208.8 181.6 L253.6 164.2 L287.6 151.2 L400.4 108.6 L513.2 66.1 L626.0 23.6" fill="none"/>
+<circle class="dot a5" cx="62.0" cy="222.3" r="3"/>
+<circle class="dot a5" cx="96.0" cy="232.9" r="3"/>
+<circle class="dot a5" cx="140.8" cy="210.2" r="3"/>
+<circle class="dot a5" cx="174.8" cy="195.3" r="3"/>
+<circle class="dot a5" cx="208.8" cy="181.6" r="3"/>
+<circle class="dot a5" cx="253.6" cy="164.2" r="3"/>
+<circle class="dot a5" cx="287.6" cy="151.2" r="3"/>
+<circle class="dot a5" cx="400.4" cy="108.6" r="3"/>
+<circle class="dot a5" cx="513.2" cy="66.1" r="3"/>
+<circle class="dot a5" cx="626.0" cy="23.6" r="3"/>
+<path class="ln c4 dash" d="M62.0 270.6 L84.6 273.5 L107.1 276.3 L129.7 279.2 L152.2 282.0 L174.8 284.9 L197.4 287.7 L219.9 290.5 L242.5 293.4 L265.0 296.2 L287.6 299.0 L310.2 301.9 L332.7 304.7 L355.3 307.5 L377.8 310.4 L400.4 313.2 L423.0 316.0 L445.5 318.9 L468.1 321.7 L490.6 324.5 L513.2 327.4 L535.8 330.1 L558.3 332.8 L580.9 335.9 L603.4 338.8 L626.0 341.6" fill="none"/>
+</svg></div><div class="legend"><span><i class="sw a1"></i>r = 44 (mediana di sette best)</span><span><i class="sw a2"></i>r = 45 (mediana di sette best)</span><span><i class="sw a4"></i>r = 46 (mediana di sette best)</span><span><i class="sw a5"></i>r = 47 (mediana di sette best)</span><span><i class="sw c4 dash"></i>famiglia di Smirnov, r = 46</span></div><p class="cap">Ogni punto è la mediana sui sette best del rango. Per una degenerazione di bordo ρ tende a zero con ε, come per la famiglia di Smirnov.</p></figure>
+<figure id="tab9"><figcaption><b>Tabella 9.</b> Residuo ρ a coefficienti fissi, per alcuni valori di ε (mediana sui sette best).</figcaption><div class="scroll"><table class=""><thead><tr><th></th><th>ε = 10⁻¹</th><th>ε = 10⁻²</th><th>ε = 10⁻³</th><th>ε = 10⁻⁴</th></tr></thead><tbody><tr><td>r = 44</td><td>1,9×10²</td><td>1,0×10⁴</td><td>1,4×10⁷</td><td>1,5×10¹⁰</td></tr><tr><td>r = 45</td><td>1,5×10²</td><td>1,6×10⁴</td><td>2,1×10⁷</td><td>2,1×10¹⁰</td></tr><tr><td>r = 46</td><td>1,9×10²</td><td>1,2×10⁴</td><td>1,6×10⁷</td><td>1,7×10¹⁰</td></tr><tr><td>r = 47</td><td>2,0×10²</td><td>1,6×10⁴</td><td>2,1×10⁷</td><td>2,1×10¹⁰</td></tr><tr><td>Smirnov, r = 46</td><td>7,7×10⁻²</td><td>7,6×10⁻³</td><td>7,6×10⁻⁴</td><td>7,6×10⁻⁵</td></tr></tbody></table></div></figure>
+</section>
+
+<section id="sec-ref"><h2>Raffinamento vincolato</h2>
+<figure id="fig6"><figcaption><b>Figura 6.</b> Residuo contro peso lungo il raffinamento dei candidati di rango.</figcaption><div class="scroll"><svg viewBox="0 0 660 400" role="img" xmlns="http://www.w3.org/2000/svg">
+<line class="grid" x1="62" x2="626" y1="354.0" y2="354.0"/>
+<text class="tick" x="54" y="358.0" text-anchor="end">10⁻⁶</text>
+<line class="grid" x1="62" x2="626" y1="297.3" y2="297.3"/>
+<text class="tick" x="54" y="301.3" text-anchor="end">10⁻⁵</text>
+<line class="grid" x1="62" x2="626" y1="240.7" y2="240.7"/>
+<text class="tick" x="54" y="244.7" text-anchor="end">10⁻⁴</text>
+<line class="grid" x1="62" x2="626" y1="184.0" y2="184.0"/>
+<text class="tick" x="54" y="188.0" text-anchor="end">10⁻³</text>
+<line class="grid" x1="62" x2="626" y1="127.3" y2="127.3"/>
+<text class="tick" x="54" y="131.3" text-anchor="end">10⁻²</text>
+<line class="grid" x1="62" x2="626" y1="70.7" y2="70.7"/>
+<text class="tick" x="54" y="74.7" text-anchor="end">10⁻¹</text>
+<line class="grid" x1="62" x2="626" y1="14.0" y2="14.0"/>
+<text class="tick" x="54" y="18.0" text-anchor="end">1</text>
+<line class="axis" x1="62.0" x2="62.0" y1="354" y2="359"/>
+<text class="tick" x="62.0" y="374" text-anchor="middle">10³</text>
+<line class="axis" x1="289.7" x2="289.7" y1="354" y2="359"/>
+<text class="tick" x="289.7" y="374" text-anchor="middle">10⁴</text>
+<line class="axis" x1="517.4" x2="517.4" y1="354" y2="359"/>
+<text class="tick" x="517.4" y="374" text-anchor="middle">10⁵</text>
+<line class="axis" x1="62" x2="626" y1="354" y2="354"/>
+<text class="lab" x="344.0" y="394" text-anchor="middle">peso W = Σ ‖h‖‖k‖‖f‖</text>
+<text class="lab" transform="translate(14 184.0) rotate(-90)" text-anchor="middle">residuo relativo ρ</text>
+<line class="ref " x1="62" x2="626" y1="48.1" y2="48.1"/>
+<text class="tick" x="622" y="43.1" text-anchor="end">√(4/64)</text>
+<line class="ref " x1="62" x2="626" y1="56.6" y2="56.6"/>
+<text class="tick" x="622" y="51.6" text-anchor="end">√(2/64)</text>
+<path class="ln a2" d="M121.9 47.6 L197.6 48.0 L368.2 48.1 L568.4 48.1" fill="none"/>
+<circle class="dot a2" cx="121.9" cy="47.6" r="3.5"/>
+<circle class="dot a2" cx="197.6" cy="48.0" r="3.5"/>
+<circle class="dot a2" cx="368.2" cy="48.1" r="3.5"/>
+<circle class="dot a2" cx="568.4" cy="48.1" r="3.5"/>
+<path class="ln a4" d="M92.4 47.6 L195.6 48.1 L433.0 48.1 L461.5 48.1" fill="none"/>
+<circle class="dot a4" cx="92.4" cy="47.6" r="3.5"/>
+<circle class="dot a4" cx="195.6" cy="48.1" r="3.5"/>
+<circle class="dot a4" cx="433.0" cy="48.1" r="3.5"/>
+<circle class="dot a4" cx="461.5" cy="48.1" r="3.5"/>
+<path class="ln c3" d="M114.2 47.8 L231.4 51.6 L339.0 51.6 L543.9 56.6" fill="none"/>
+<circle class="dot c3" cx="114.2" cy="47.8" r="3.5"/>
+<circle class="dot c3" cx="231.4" cy="51.6" r="3.5"/>
+<circle class="dot c3" cx="339.0" cy="51.6" r="3.5"/>
+<circle class="dot c3" cx="543.9" cy="56.6" r="3.5"/>
+<path class="ln a5" d="M97.0 50.9 L193.3 56.3 L379.1 56.6 L559.7 56.6" fill="none"/>
+<circle class="dot a5" cx="97.0" cy="50.9" r="3.5"/>
+<circle class="dot a5" cx="193.3" cy="56.3" r="3.5"/>
+<circle class="dot a5" cx="379.1" cy="56.6" r="3.5"/>
+<circle class="dot a5" cx="559.7" cy="56.6" r="3.5"/>
+<path class="ln b1" d="M169.8 86.2 L262.1 104.6 L465.7 156.6 L573.4 210.7" fill="none"/>
+<circle class="dot b1" cx="169.8" cy="86.2" r="3.5"/>
+<circle class="dot b1" cx="262.1" cy="104.6" r="3.5"/>
+<circle class="dot b1" cx="465.7" cy="156.6" r="3.5"/>
+<circle class="dot b1" cx="573.4" cy="210.7" r="3.5"/>
+<path class="ln b2" d="M170.4 89.3 L258.4 114.1 L400.2 145.8 L596.8 191.8" fill="none"/>
+<circle class="dot b2" cx="170.4" cy="89.3" r="3.5"/>
+<circle class="dot b2" cx="258.4" cy="114.1" r="3.5"/>
+<circle class="dot b2" cx="400.2" cy="145.8" r="3.5"/>
+<circle class="dot b2" cx="596.8" cy="191.8" r="3.5"/>
+<path class="ln b3" d="M114.8 126.6 L224.9 162.7 L448.8 227.8 L462.5 231.5" fill="none"/>
+<circle class="dot b3" cx="114.8" cy="126.6" r="3.5"/>
+<circle class="dot b3" cx="224.9" cy="162.7" r="3.5"/>
+<circle class="dot b3" cx="448.8" cy="227.8" r="3.5"/>
+<circle class="dot b3" cx="462.5" cy="231.5" r="3.5"/>
+<path class="ln b4" d="M128.3 115.7 L180.4 208.2 L241.0 332.5 L245.5 338.1" fill="none"/>
+<circle class="dot b4" cx="128.3" cy="115.7" r="3.5"/>
+<circle class="dot b4" cx="180.4" cy="208.2" r="3.5"/>
+<circle class="dot b4" cx="241.0" cy="332.5" r="3.5"/>
+<circle class="dot b4" cx="245.5" cy="338.1" r="3.5"/>
+</svg></div><div class="legend"><span><i class="sw a2"></i>r = 47, seed 1</span><span><i class="sw a4"></i>r = 48, seed 4</span><span><i class="sw c3"></i>r = 49, seed 1</span><span><i class="sw a5"></i>r = 49, seed 6</span><span><i class="sw b1"></i>r = 51, seed 1</span><span><i class="sw b2"></i>r = 52, seed 1</span><span><i class="sw b3"></i>r = 54, seed 1</span><span><i class="sw b4"></i>r = 60, seed 1</span></div><p class="cap">Il primo punto di ogni linea è il best del training; i successivi sono i tre livelli del vincolo |θ| ≤ c. Le due linee orizzontali sono i residui di un tensore che differisce da M<sub>4</sub> per 4 e per 2 entrate.</p></figure>
+<figure id="tab10"><figcaption><b>Tabella 10.</b> Raffinamento diretto dei candidati di rango (Levenberg–Marquardt proiettato, al più un'ora per livello).</figcaption><div class="scroll"><table class=""><thead><tr><th>r</th><th>seed</th><th>best del training</th><th>primo livello</th><th>secondo livello</th><th>terzo livello</th></tr></thead><tbody><tr><td>47</td><td>1</td><td>2,6×10⁻¹<br><small>W = 1,8×10³</small></td><td>2,51×10⁻¹<br><small>c = 5, W = 3,9×10³</small></td><td>2,50×10⁻¹<br><small>c = 10, W = 2,2×10⁴</small></td><td>2,50×10⁻¹<br><small>c = 25, W = 1,7×10⁵</small></td></tr><tr><td>48</td><td>4</td><td>2,6×10⁻¹<br><small>W = 1,4×10³</small></td><td>2,50×10⁻¹<br><small>c = 4, W = 3,9×10³</small></td><td>2,50×10⁻¹<br><small>c = 10, W = 4,3×10⁴</small></td><td>2,50×10⁻¹<br><small>c = 25, W = 5,7×10⁴</small></td></tr><tr><td>49</td><td>1</td><td>2,5×10⁻¹<br><small>W = 1,7×10³</small></td><td>2,17×10⁻¹<br><small>c = 6, W = 5,5×10³</small></td><td>2,17×10⁻¹<br><small>c = 10, W = 1,6×10⁴</small></td><td>1,77×10⁻¹<br><small>c = 25, W = 1,3×10⁵</small></td></tr><tr><td>49</td><td>6</td><td>2,2×10⁻¹<br><small>W = 1,4×10³</small></td><td>1,80×10⁻¹<br><small>c = 5, W = 3,8×10³</small></td><td>1,77×10⁻¹<br><small>c = 10, W = 2,5×10⁴</small></td><td>1,77×10⁻¹<br><small>c = 25, W = 1,5×10⁵</small></td></tr><tr><td>51</td><td>1</td><td>5,3×10⁻²<br><small>W = 3,0×10³</small></td><td>2,52×10⁻²<br><small>c = 5, W = 7,6×10³</small></td><td>3,05×10⁻³<br><small>c = 10, W = 5,9×10⁴</small></td><td>3,39×10⁻⁴<br><small>c = 25, W = 1,8×10⁵</small></td></tr><tr><td>52</td><td>1</td><td>4,7×10⁻²<br><small>W = 3,0×10³</small></td><td>1,71×10⁻²<br><small>c = 6, W = 7,3×10³</small></td><td>4,73×10⁻³<br><small>c = 10, W = 3,1×10⁴</small></td><td>7,30×10⁻⁴<br><small>c = 25, W = 2,2×10⁵</small></td></tr><tr><td>54</td><td>1</td><td>1,0×10⁻²<br><small>W = 1,7×10³</small></td><td>2,38×10⁻³<br><small>c = 4, W = 5,2×10³</small></td><td>1,68×10⁻⁴<br><small>c = 10, W = 5,0×10⁴</small></td><td>1,45×10⁻⁴<br><small>c = 25, W = 5,7×10⁴</small></td></tr><tr><td>60</td><td>1</td><td>1,6×10⁻²<br><small>W = 2,0×10³</small></td><td>3,74×10⁻⁴<br><small>c = 5, W = 3,3×10³</small></td><td>2,39×10⁻⁶<br><small>c = 10, W = 6,1×10³</small></td><td>1,91×10⁻⁶<br><small>c = 25, W = 6,4×10³</small></td></tr></tbody></table></div><p class="cap">Il primo livello è il più piccolo c che non taglia alcun coefficiente del candidato. Per r = 49 seed 1 e r = 52 il tetto era di 20 minuti per livello. Quasi tutti i livelli si sono fermati per il tetto di tempo.</p></figure>
+<figure id="tab11"><figcaption><b>Tabella 11.</b> Catena completa (c da 0,1 a 25) avviata dagli schemi noti perturbati dell'1%.</figcaption><div class="scroll"><table class=""><thead><tr><th>c</th><th>49 termini: ρ</th><th>49 termini: W</th><th>48 termini: ρ</th><th>48 termini: W</th></tr></thead><tbody><tr><td>0.1</td><td>0,9522</td><td>3,1</td><td>0,9532</td><td>3,1</td></tr><tr><td>0.3</td><td>0,4835</td><td>5,1×10¹</td><td>0,4988</td><td>5,0×10¹</td></tr><tr><td>0.5</td><td>0,3208</td><td>1,1×10²</td><td>0,2926</td><td>1,5×10²</td></tr><tr><td>0.7</td><td>0,2191</td><td>3,9×10²</td><td>0,2533</td><td>4,8×10²</td></tr><tr><td>1</td><td>0,2167</td><td>1,1×10³</td><td>0,2503</td><td>1,2×10³</td></tr><tr><td>2</td><td>0,2165</td><td>4,7×10³</td><td>0,2500</td><td>6,1×10³</td></tr><tr><td>5</td><td>0,2165</td><td>3,6×10⁴</td><td>0,2500</td><td>3,8×10⁴</td></tr><tr><td>10</td><td>0,2165</td><td>4,3×10⁴</td><td>0,2500</td><td>4,6×10⁴</td></tr><tr><td>25</td><td>0,2165</td><td>5,2×10⁴</td><td>0,2500</td><td>5,7×10⁴</td></tr></tbody></table></div><p class="cap">Valori di riferimento: √(3/64) = 0,2165 e √(4/64) = 0,2500.</p></figure>
+</section>
+<footer>Dati per run (fattori al best e a fine run, curve per epoca, verifiche del limite) nel progetto W&amp;B <span class="mono">matmulnet-4x4</span> e nella cartella <span class="mono">runs/</span> del codice.</footer>
+</main>

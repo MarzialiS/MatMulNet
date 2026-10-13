@@ -1,0 +1,26 @@
+{
+  "n": 4,
+  "rank": 48,
+  "degrees": [
+    0
+  ],
+  "border": false,
+  "seed": 1,
+  "init": "normal",
+  "max_epochs": 20000,
+  "backend": "numba",
+  "init_from": "/home/giacomo/.claude/jobs/314bdf00/tmp/schemes/rational48_s1e-2.npz",
+  "precision": "float64",
+  "best_val_loss": 4.2997818257360047e-14,
+  "best_epoch": 152,
+  "epsilon_at_best": 1.0,
+  "rho": 3.1189197985288203e-07,
+  "weight": 210.4981867780718,
+  "last_val_loss": 3.682028492661281e-10,
+  "epsilon_at_last": 1.0,
+  "last_rho": 2.806775324442489e-05,
+  "last_weight": 210.49147816603877,
+  "epochs_done": 20000,
+  "updates": 6260000,
+  "seconds": 293.96189284324646
+}
