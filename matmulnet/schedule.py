@@ -1,4 +1,6 @@
-"""Schedules: the learning rate (halved on plateaus of the validation loss) and epsilon."""
+"""Schedules: the learning rate (halved on plateaus of the validation loss, the protocol of the
+paper; or cosine, or constant) and epsilon."""
+import math
 
 EPS_START, EPS_END = 1e-1, 1e-3
 LR_START, LR_MIN, LR_FACTOR, LR_PATIENCE = 1e-4, 1e-6, 0.5, 15
@@ -32,3 +34,8 @@ class Plateau:
                 self.lr = new
             self.bad = 0
         return self.lr
+
+
+def cosine_lr(epoch, max_epochs, lr_start=LR_START, lr_min=LR_MIN):
+    """Cosine decay from lr_start (epoch 1) to lr_min (epoch max_epochs + 1)."""
+    return lr_min + 0.5 * (lr_start - lr_min) * (1.0 + math.cos(math.pi * (epoch - 1) / max_epochs))

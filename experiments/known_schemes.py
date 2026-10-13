@@ -5,6 +5,8 @@
     python experiments/known_schemes.py smirnov46 --source smirnov.txt --out schemes/smirnov46.npz
     python experiments/known_schemes.py perturb schemes/rational48.npz --sigma 1e-2 --seed 1 \\
         --out schemes/rational48_s1e-2.npz
+    python experiments/known_schemes.py interpolate schemes/rational48.npz --t 0.5 --seed 1 \\
+        --out schemes/rational48_t0.5.npz
 
 strassen49   Strassen's 7-term scheme for 2 x 2 matrices applied to itself (49 terms).
 rational48   The 48-term scheme with rational coefficients of Dumas, Pernet and Sedoglavic
@@ -16,6 +18,9 @@ smirnov46    The approximate scheme of length 46 of Smirnov (arXiv:1412.1687), a
              (`pdftotext -layout`), which lists the coefficients evaluated at eps = 0.1.
 perturb      Add Gaussian noise of standard deviation sigma times the root mean square of the
              non-zero coefficients to every coefficient of a stored scheme.
+interpolate  (1 - t) times a stored scheme plus t times a random point drawn as the training
+             runs draw their initial point (every coefficient from N(0, 1)): t = 0 is the
+             scheme, t = 1 a random start.
 
 Every scheme is checked against M_4 before it is written. The output holds H_coeff, K_coeff,
 F_coeff and degrees, and for the exact schemes also the factors H, K, F; it can be passed to
@@ -107,26 +112,36 @@ def smirnov46(source):
     return (Hc.copy(), Kc.copy(), Fc.copy()), degrees
 
 
+def perturb(coeff, sigma, rng):
+    return [c + sigma * np.sqrt(np.mean(c[c != 0] ** 2)) * rng.standard_normal(c.shape)
+            for c in coeff]
+
+
+def interpolate(coeff, t, rng):
+    return [(1.0 - t) * c + t * rng.standard_normal(c.shape) for c in coeff]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("scheme", choices=["strassen49", "rational48", "smirnov46", "perturb"])
-    ap.add_argument("input", nargs="?", help="perturb: the stored scheme")
+    ap.add_argument("scheme", choices=["strassen49", "rational48", "smirnov46", "perturb",
+                                           "interpolate"])
+    ap.add_argument("input", nargs="?", help="perturb, interpolate: the stored scheme")
     ap.add_argument("--source", help="file with the published coefficients")
     ap.add_argument("--sigma", type=float, default=1e-2)
+    ap.add_argument("--t", type=float, default=0.5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 
-    if a.scheme == "perturb":
+    if a.scheme in ("perturb", "interpolate"):
         z = np.load(a.input)
         rng = np.random.default_rng(a.seed)
         deg = z["degrees"]
-        coeff = []
-        for k in ("H_coeff", "K_coeff", "F_coeff"):
-            c = z[k]
-            coeff.append(c + a.sigma * np.sqrt(np.mean(c[c != 0] ** 2)) * rng.standard_normal(c.shape))
+        coeff = [z[k] for k in ("H_coeff", "K_coeff", "F_coeff")]
+        coeff = perturb(coeff, a.sigma, rng) if a.scheme == "perturb" else \
+            interpolate(coeff, a.t, rng)
     elif a.scheme == "smirnov46":
         coeff, deg = smirnov46(a.source)
         lau = metrics.laurent(*coeff, deg)

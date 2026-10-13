@@ -19,6 +19,13 @@ state; an interrupted run restarts from it and continues identically).
 --init-from FILE starts from the factors stored in FILE (a best.npz, or a known scheme written
 by experiments/known_schemes.py) instead of a random point. --wandb ENTITY/PROJECT also sends
 the logged quantities to Weights & Biases.
+
+Departures from the protocol, all off by default: --lr, --lr-min, --lr-factor and --patience
+change the plateau schedule; --schedule cosine decays the learning rate from --lr to --lr-min
+over the run, --schedule constant keeps it at --lr; --batch changes the size of the mini-batches.
+--polish N, for the rank model, ends the run with at most N iterations of unconstrained
+Levenberg-Marquardt on the full-tensor residual from the best parameters (refinement.refine),
+and records the outcome in summary.json (polish_rho, polish_weight, ...) and in polished.npz.
 """
 import argparse
 import json
@@ -30,7 +37,8 @@ import numpy as np
 
 from . import metrics
 from .data import draw_sets
-from .schedule import EPS_START, Plateau, epsilon_at
+from .schedule import EPS_START, LR_FACTOR, LR_MIN, LR_PATIENCE, LR_START, Plateau, cosine_lr, \
+    epsilon_at
 
 MAX_EPOCHS, BATCH, CLIP, ALPHA = 1_000_000, 32, 10.0, 1.0
 
@@ -143,7 +151,25 @@ def _load_start(path, n, rank, deg):
     return params
 
 
-def _wandb_run(target, out, cfg, group, tags):
+def _polish(out, best, cfg, max_iter):
+    """Unconstrained Levenberg-Marquardt from the best parameters (rank model)."""
+    from refinement.refine import Problem, projected_lm
+    n = cfg["n"]
+    H, K, F = (p[..., 0] for p in best["P"])
+    prob = Problem(n, H.shape[1])
+    t0 = time.time()
+    x, status, iters = projected_lm(prob, prob.pack(H, K, F), np.inf, max_iter,
+                                    stall_window=max_iter)
+    H, K, F = prob.unpack(x)
+    res = dict(polish_rho=metrics.rho(H, K, F, n), polish_weight=metrics.weight(H, K, F),
+               polish_status=status, polish_iterations=iters,
+               polish_cancellation_level=metrics.cancellation_level(H, K, F, n),
+               polish_seconds=time.time() - t0)
+    np.savez(os.path.join(out, "polished.npz"), H=H, K=K, F=F, n=n, **res)
+    return res
+
+
+def _wandb_run(target, out, cfg, group, tags, job_type=None):
     import wandb
     entity, _, project = target.rpartition("/")
     id_file = os.path.join(out, "wandb_id.txt")
@@ -154,17 +180,24 @@ def _wandb_run(target, out, cfg, group, tags):
     return wandb.init(entity=entity or None, project=project, id=run_id, resume="allow",
                       name=os.path.basename(os.path.normpath(out)), config=cfg,
                       group=group or f"{kind}_n{cfg['n']}_r{cfg['rank']}",
-                      job_type="control" if cfg["init_from"] else kind, tags=tags or None,
+                      job_type=job_type or ("control" if cfg["init_from"] else kind),
+                      tags=tags or None,
                       settings=wandb.Settings(console="off"))
 
 
 def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="numba", init="normal",
           log_every=100, ckpt_every=10_000, quiet=False, init_from=None, wandb=None,
-          wandb_group=None, wandb_tags=None, _interrupt_at=None):
+          wandb_group=None, wandb_tags=None, lr=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR,
+          patience=LR_PATIENCE, schedule="plateau", batch=BATCH, polish=0, wandb_job_type=None,
+          _interrupt_at=None):
     border = degrees is not None
     deg = list(range(degrees[0], degrees[1] + 1)) if border else [0]
     cfg = dict(n=n, rank=rank, degrees=deg, border=border, seed=seed, init=init, max_epochs=max_epochs,
-               backend=backend, init_from=init_from)
+               backend=backend, init_from=init_from, lr_start=lr, lr_min=lr_min, lr_factor=lr_factor,
+               patience=patience, schedule=schedule, batch=batch, polish=polish)
+    # the protocol's values, for checkpoints written before these options existed
+    old = dict(lr_start=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR, patience=LR_PATIENCE,
+               schedule="plateau", batch=BATCH)
     os.makedirs(out, exist_ok=True)
     ckpt = os.path.join(out, "ckpt.npz")
     eps_of = (lambda e: epsilon_at(e, max_epochs)) if border else (lambda e: 1.0)
@@ -172,16 +205,18 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
     if os.path.exists(ckpt):
         z = np.load(ckpt)
         meta = json.loads(str(z["meta"]))
-        for key in ("n", "rank", "degrees", "seed", "init", "max_epochs", "init_from"):
-            if meta.get(key) != cfg[key]:
-                raise SystemExit(f"{ckpt} was written with {key}={meta[key]}, not {cfg[key]}")
+        for key in ("n", "rank", "degrees", "seed", "init", "max_epochs", "init_from", *old):
+            if meta.get(key, old.get(key)) != cfg[key]:
+                raise SystemExit(f"{ckpt} was written with {key}={meta.get(key, old.get(key))}, "
+                                 f"not {cfg[key]}")
         data = (tuple(z[f"train{i}"] for i in range(3)), tuple(z[f"val{i}"] for i in range(3)))
         rng = np.random.default_rng()
         rng.bit_generator.state = meta["rng_state"]
         be = make_backend(backend, [z[f"p{i}"] for i in range(3)], deg)
         be.set_state([z[f"p{i}"] for i in range(3)], [z[f"m{i}"] for i in range(3)],
                      [z[f"v{i}"] for i in range(3)], meta["step"])
-        sched = Plateau(lr=meta["lr"], best=meta["pl_best"], bad=meta["pl_bad"])
+        sched = Plateau(lr=meta["lr"], factor=lr_factor, patience=patience, min_lr=lr_min,
+                        best=meta["pl_best"], bad=meta["pl_bad"])
         best = dict(P=[z[f"b{i}"].copy() for i in range(3)], val=meta["best_val"],
                     epoch=meta["best_epoch"], eps=eps_of(max(meta["best_epoch"], 1)))
         first, elapsed = meta["epoch"] + 1, meta.get("seconds", 0.0)
@@ -191,7 +226,7 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
         params = _load_start(init_from, n, rank, deg) if init_from else \
             init_params(rng, n, rank, deg, init)
         be = make_backend(backend, params, deg)
-        sched = Plateau()
+        sched = Plateau(lr=lr, factor=lr_factor, patience=patience, min_lr=lr_min)
         best = dict(P=[p.copy() for p in params], val=float("inf"), epoch=0, eps=eps_of(1))
         first, elapsed = 1, 0.0
     train_set, val_set = data
@@ -204,14 +239,17 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
             kept += [row for row in fh.readlines()[1:] if int(row.split(",")[0]) < first]
     log = open(log_path, "w", buffering=1 << 20)
     log.writelines(kept)
-    run = _wandb_run(wandb, out, cfg, wandb_group, wandb_tags) if wandb else None
+    run = _wandb_run(wandb, out, cfg, wandb_group, wandb_tags, wandb_job_type) if wandb else None
+    lr_of = {"plateau": lambda e: sched.lr, "constant": lambda e: lr,
+             "cosine": lambda e: cosine_lr(e, max_epochs, lr, lr_min)}[schedule]
     t0 = time.time()
     for epoch in range(first, max_epochs + 1):
-        eps, lr = eps_of(epoch), sched.lr
+        eps, lr_now = eps_of(epoch), lr_of(epoch)
         perm = rng.permutation(n_train)
-        train_loss = be.train_epoch(eps, lr, train_set, perm, BATCH)
+        train_loss = be.train_epoch(eps, lr_now, train_set, perm, batch)
         val = be.validate(eps, val_set)
-        sched.step(val)
+        if schedule == "plateau":
+            sched.step(val)
         if val < best["val"]:
             best.update(P=be.get_state()[0], val=val, epoch=epoch, eps=eps)
         last = epoch == max_epochs
@@ -219,9 +257,9 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
             P_now, _, _, step = be.get_state()
             H, K, F = (metrics.evaluate(p, deg, eps) for p in P_now)
             rho, w = metrics.rho(H, K, F, n), metrics.weight(H, K, F)
-            log.write(f"{epoch},{eps!r},{lr!r},{train_loss!r},{val!r},{rho!r},{w!r}\n")
+            log.write(f"{epoch},{eps!r},{lr_now!r},{train_loss!r},{val!r},{rho!r},{w!r}\n")
             if run:
-                run.log(dict(epoch=epoch, epsilon=eps, lr=lr, train_loss=train_loss, val_loss=val,
+                run.log(dict(epoch=epoch, epsilon=eps, lr=lr_now, train_loss=train_loss, val_loss=val,
                              rho=rho, weight=w, best_val_loss=best["val"],
                              updates=int(step)), step=epoch)
         if epoch % ckpt_every == 0 or last:
@@ -235,12 +273,26 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
                 run.summary.update({k: v for k, v in summary.items() if k not in cfg})
             if not quiet:
                 rate = (time.time() - t0) / (epoch - first + 1)
-                print(f"[{os.path.basename(out)}] epoch {epoch} lr {lr:.1e} val {val:.4e} "
+                print(f"[{os.path.basename(out)}] epoch {epoch} lr {lr_now:.1e} val {val:.4e} "
                       f"best {best['val']:.4e} @ {best['epoch']} | {rate * 1e3:.2f} ms/epoch, "
                       f"{(max_epochs - epoch) * rate / 3600:.2f} h left", flush=True)
         if epoch == _interrupt_at:      # used by the tests to emulate a killed process
             break
     log.close()
+    summary_path = os.path.join(out, "summary.json")
+    if polish and not border and os.path.exists(summary_path):
+        with open(summary_path) as fh:
+            summary = json.load(fh)
+        if summary["epochs_done"] >= max_epochs and "polish_rho" not in summary:
+            summary.update(_polish(out, best, cfg, polish))
+            with open(summary_path, "w") as fh:
+                json.dump(summary, fh, indent=2)
+            if run:
+                run.summary.update({k: v for k, v in summary.items() if k.startswith("polish_")})
+            if not quiet:
+                print(f"[{os.path.basename(out)}] polish: rho {summary['polish_rho']:.3e} "
+                      f"W {summary['polish_weight']:.4g} {summary['polish_status']} "
+                      f"({summary['polish_iterations']} it)", flush=True)
     if run:
         run.finish()
     return best
@@ -267,11 +319,21 @@ def main():
     ap.add_argument("--wandb", metavar="ENTITY/PROJECT", help="log to Weights & Biases")
     ap.add_argument("--wandb-group")
     ap.add_argument("--wandb-tags", nargs="*")
+    ap.add_argument("--wandb-job-type")
+    ap.add_argument("--lr", type=float, default=LR_START, help="initial learning rate")
+    ap.add_argument("--lr-min", type=float, default=LR_MIN, help="smallest learning rate")
+    ap.add_argument("--lr-factor", type=float, default=LR_FACTOR, help="plateau: reduction factor")
+    ap.add_argument("--patience", type=int, default=LR_PATIENCE, help="plateau: patience (epochs)")
+    ap.add_argument("--schedule", choices=["plateau", "cosine", "constant"], default="plateau")
+    ap.add_argument("--batch", type=int, default=BATCH, help="mini-batch size")
+    ap.add_argument("--polish", type=int, default=0, metavar="N",
+                    help="end with at most N Levenberg-Marquardt iterations (rank model)")
     a = ap.parse_args()
     if a.degrees and a.degrees[0] > a.degrees[1]:
         ap.error("--degrees needs D_MIN <= D_MAX")
     best = train(a.n, a.rank, a.out, a.seed, a.degrees, a.max_epochs, a.backend, a.init, a.log_every,
-                 a.ckpt_every, a.quiet, a.init_from, a.wandb, a.wandb_group, a.wandb_tags)
+                 a.ckpt_every, a.quiet, a.init_from, a.wandb, a.wandb_group, a.wandb_tags, a.lr,
+                 a.lr_min, a.lr_factor, a.patience, a.schedule, a.batch, a.polish, a.wandb_job_type)
     print(f"best validation loss {best['val']:.6e} at epoch {best['epoch']}")
 
 
