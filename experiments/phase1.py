@@ -19,6 +19,9 @@ budget well above the one of the polish that ends a training run. A training con
 counts only on the starts where this control fails. `train` runs matmulnet.train from every
 start (arguments after `--` are passed on), ending with --polish. Every job is a single-threaded
 process pinned to its own core (--cpus, as in experiments/sweep.py); finished jobs are skipped.
+`reduce` (rank reduction) starts from the last points of a training configuration with more
+terms (--source) and, one term at a time, drops the term whose removal increases rho the least
+and trains --stage-epochs epochs, down to --target terms, then polishes.
 `table` prints, per start level, the fraction of solved starts for the control and for every
 training configuration, and whether the solution found is the scheme itself (same rank-one
 terms up to order) or another decomposition.
@@ -197,6 +200,64 @@ def cmd_train(a):
     pinned_pool(a, jobs)
 
 
+def drop_least_damage(H, K, F):
+    """Remove the term whose removal increases the residual rho the least."""
+    R = metrics.tensor(H, K, F) - metrics.matmul_tensor(4)
+    inner = np.einsum("abc,as,bs,sc->s", R, H, K, F, optimize=True)
+    sq = (H ** 2).sum(0) * (K ** 2).sum(0) * (F ** 2).sum(1)
+    s = int(np.argmin(sq - 2 * inner))         # ||R - t_s||^2 - ||R||^2
+    keep = np.arange(H.shape[1]) != s
+    return H[:, keep], K[:, keep], F[keep]
+
+
+def cmd_reduce(a):
+    jobs = []
+    for name in selected(a):
+        if not os.path.exists(os.path.join(a.dir, "train", a.source, name, "last.npz")):
+            continue
+        final = os.path.join(a.dir, "reduce", a.tag, name, f"r{a.target}", "summary.json")
+        if os.path.exists(final) and "polish_rho" in json.load(open(final)):
+            continue
+        os.makedirs(os.path.dirname(final), exist_ok=True)
+        cmd = [sys.executable, os.path.abspath(__file__), "reduce-one", name, "--dir", a.dir,
+               "--tag", a.tag, "--source", a.source, "--target", str(a.target),
+               "--stage-epochs", str(a.stage_epochs), "--stage-lr", str(a.stage_lr)]
+        if a.wandb:
+            cmd += ["--wandb", a.wandb]
+        jobs.append((f"reduce {a.tag}/{name}", cmd,
+                     os.path.join(os.path.dirname(os.path.dirname(final)), "stdout.log")))
+    pinned_pool(a, jobs)
+
+
+def cmd_reduce_one(a):
+    """Rank reduction from the last point of a run with more terms: drop the term whose removal
+    hurts least, train for --stage-epochs (cosine from --stage-lr), repeat down to --target,
+    then polish."""
+    from matmulnet.train import train
+    z = np.load(os.path.join(a.dir, "train", a.source, a.name, "last.npz"))
+    H, K, F = z["H"], z["K"], z["F"]
+    seed = int(a.name.rsplit("seed", 1)[1])
+    base = os.path.join(a.dir, "reduce", a.tag, a.name)
+    while H.shape[1] > a.target:
+        H, K, F = drop_least_damage(H, K, F)
+        r = H.shape[1]
+        stage = os.path.join(base, f"r{r}")
+        os.makedirs(stage, exist_ok=True)
+        start = os.path.join(stage, "start.npz")
+        np.savez(start, H_coeff=H[..., None], K_coeff=K[..., None], F_coeff=F[..., None],
+                 degrees=np.array([0]), H=H, K=K, F=F, n=4, rho=metrics.rho(H, K, F, 4))
+        train(4, r, stage, seed=seed, max_epochs=a.stage_epochs, init_from=start, quiet=True,
+              ckpt_every=5000, schedule="cosine", lr=a.stage_lr,
+              polish=POLISH_ITER if r == a.target else 0, wandb=a.wandb,
+              wandb_group=f"phase1_reduce_{a.tag}_{level(a.name)}", wandb_job_type="phase1-reduce",
+              wandb_tags=["round-2", "phase-1", f"reduce_{a.tag}"])
+        rho_start = float(np.load(start)["rho"])
+        z = np.load(os.path.join(stage, "last.npz"))
+        H, K, F = z["H"], z["K"], z["F"]
+        print(f"{a.name} r={r}: rho {rho_start:.3e} after the removal, "
+              f"{metrics.rho(H, K, F, 4):.3e} at the end of the stage", flush=True)
+
+
 def collect(a):
     """{(method, level): [result per start]}; method 'lm' or the training tag."""
     ref = np.load(os.path.join(a.dir, "starts", "scheme.npz"))
@@ -205,12 +266,17 @@ def collect(a):
     for f in glob.glob(os.path.join(a.dir, "lm", "*", "result.json")):
         r = json.load(open(f))
         rows.setdefault(("lm", r["level"]), []).append(r)
-    for f in glob.glob(os.path.join(a.dir, "train", "*", "*", "summary.json")):
+    for f in glob.glob(os.path.join(a.dir, "train", "*", "*", "summary.json")) + \
+            glob.glob(os.path.join(a.dir, "reduce", "*", "*", "r*", "summary.json")):
         s = json.load(open(f))
         if "polish_rho" not in s:
             continue
         run_dir = os.path.dirname(f)
-        tag, name = run_dir.split(os.sep)[-2:]
+        if os.sep + "reduce" + os.sep in run_dir:
+            tag, name = run_dir.split(os.sep)[-3:-1]
+            tag = "reduce:" + tag
+        else:
+            tag, name = run_dir.split(os.sep)[-2:]
         cache = os.path.join(run_dir, "terms_vs_scheme.json")
         if not os.path.exists(cache):
             z = np.load(os.path.join(run_dir, "polished.npz"))
@@ -247,8 +313,9 @@ def cmd_table(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["starts", "lm", "lm-one", "train", "table"])
-    ap.add_argument("name", nargs="?", help="lm-one: the starting point")
+    ap.add_argument("command", choices=["starts", "lm", "lm-one", "train", "reduce", "reduce-one",
+                                        "table"])
+    ap.add_argument("name", nargs="?", help="lm-one, reduce-one: the starting point")
     ap.add_argument("--dir", default=DEFAULT_DIR)
     ap.add_argument("--scheme", default=os.path.join(ROOT, "schemes", "rational48.npz"))
     ap.add_argument("--kinds", nargs="+", default=["noise", "interp"])
@@ -259,12 +326,16 @@ def main():
     ap.add_argument("--cpus", default="p")
     ap.add_argument("--jobs", type=int)
     ap.add_argument("--wandb", metavar="ENTITY/PROJECT")
+    ap.add_argument("--source", help="reduce: training tag whose last points have more terms")
+    ap.add_argument("--target", type=int, default=48, help="reduce: final number of terms")
+    ap.add_argument("--stage-epochs", type=int, default=10_000, help="reduce: epochs per term")
+    ap.add_argument("--stage-lr", type=float, default=1e-3, help="reduce: initial learning rate")
     argv = sys.argv[1:]
     cut = argv.index("--") if "--" in argv else len(argv)
     a = ap.parse_args(argv[:cut])
     a.extra = argv[cut + 1:]          # train: options passed on to matmulnet.train
     {"starts": cmd_starts, "lm": cmd_lm, "lm-one": cmd_lm_one, "train": cmd_train,
-     "table": cmd_table}[a.command](a)
+     "reduce": cmd_reduce, "reduce-one": cmd_reduce_one, "table": cmd_table}[a.command](a)
 
 
 if __name__ == "__main__":
