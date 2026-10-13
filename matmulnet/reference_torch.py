@@ -38,11 +38,12 @@ class MatMulNet(nn.Module):
 
 
 class TorchBackend:
-    def __init__(self, params, degrees, clip):
+    def __init__(self, params, degrees, clip, weight_decay=0.0):
         n = int(round(np.sqrt(params[0].shape[0])))
         self.net = MatMulNet(n, params[0].shape[1], tuple(int(d) for d in degrees))
         self.clip = clip
-        self.opt = torch.optim.Adam(self.net.parameters(), lr=1.0)
+        self.opt = torch.optim.AdamW(self.net.parameters(), lr=1.0, weight_decay=weight_decay) \
+            if weight_decay else torch.optim.Adam(self.net.parameters(), lr=1.0)
         self.loss = nn.MSELoss()
         self.set_state(params, None, None, 0.0)
 

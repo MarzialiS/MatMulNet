@@ -22,7 +22,8 @@ the logged quantities to Weights & Biases.
 
 Departures from the protocol, all off by default: --lr, --lr-min, --lr-factor and --patience
 change the plateau schedule; --schedule cosine decays the learning rate from --lr to --lr-min
-over the run, --schedule constant keeps it at --lr; --batch changes the size of the mini-batches.
+over the run, --schedule constant keeps it at --lr; --batch changes the size of the mini-batches;
+--weight-decay WD uses AdamW, multiplying the parameters by 1 - lr * WD at every update.
 --polish N, for the rank model, ends the run with at most N iterations of unconstrained
 Levenberg-Marquardt on the full-tensor residual from the best parameters (refinement.refine),
 and records the outcome in summary.json (polish_rho, polish_weight, ...) and in polished.npz.
@@ -44,9 +45,9 @@ MAX_EPOCHS, BATCH, CLIP, ALPHA = 1_000_000, 32, 10.0, 1.0
 
 
 class NumbaBackend:
-    def __init__(self, params, degrees, clip):
+    def __init__(self, params, degrees, clip, weight_decay=0.0):
         from . import kernels
-        self.k, self.clip = kernels, clip
+        self.k, self.clip, self.wd = kernels, clip, weight_decay
         self.deg = np.asarray(degrees, dtype=np.float64)
         self.set_state(params, None, None, 0.0)
 
@@ -62,18 +63,19 @@ class NumbaBackend:
 
     def train_epoch(self, eps, lr, data, perm, batch):
         self.step, loss = self.k.train_epoch(*self.P, *self.M, *self.V, self.step,
-                                             eps ** self.deg, lr, self.clip, *data, perm, batch)
+                                             eps ** self.deg, lr, self.clip, *data, perm, batch,
+                                             1.0 - lr * self.wd)
         return loss
 
     def validate(self, eps, data):
         return float(self.k.mse(*self.P, eps ** self.deg, *data))
 
 
-def make_backend(name, params, degrees, clip=CLIP):
+def make_backend(name, params, degrees, clip=CLIP, weight_decay=0.0):
     if name == "torch":
         from .reference_torch import TorchBackend
-        return TorchBackend(params, degrees, clip)
-    return NumbaBackend(params, degrees, clip)
+        return TorchBackend(params, degrees, clip, weight_decay)
+    return NumbaBackend(params, degrees, clip, weight_decay)
 
 
 def init_params(rng, n, r, degrees, init="normal", alpha=ALPHA, eps_start=EPS_START):
@@ -189,15 +191,16 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
           log_every=100, ckpt_every=10_000, quiet=False, init_from=None, wandb=None,
           wandb_group=None, wandb_tags=None, lr=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR,
           patience=LR_PATIENCE, schedule="plateau", batch=BATCH, polish=0, wandb_job_type=None,
-          _interrupt_at=None):
+          weight_decay=0.0, _interrupt_at=None):
     border = degrees is not None
     deg = list(range(degrees[0], degrees[1] + 1)) if border else [0]
     cfg = dict(n=n, rank=rank, degrees=deg, border=border, seed=seed, init=init, max_epochs=max_epochs,
                backend=backend, init_from=init_from, lr_start=lr, lr_min=lr_min, lr_factor=lr_factor,
-               patience=patience, schedule=schedule, batch=batch, polish=polish)
+               patience=patience, schedule=schedule, batch=batch, polish=polish,
+               weight_decay=weight_decay)
     # the protocol's values, for checkpoints written before these options existed
     old = dict(lr_start=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR, patience=LR_PATIENCE,
-               schedule="plateau", batch=BATCH)
+               schedule="plateau", batch=BATCH, weight_decay=0.0)
     os.makedirs(out, exist_ok=True)
     ckpt = os.path.join(out, "ckpt.npz")
     eps_of = (lambda e: epsilon_at(e, max_epochs)) if border else (lambda e: 1.0)
@@ -212,7 +215,7 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
         data = (tuple(z[f"train{i}"] for i in range(3)), tuple(z[f"val{i}"] for i in range(3)))
         rng = np.random.default_rng()
         rng.bit_generator.state = meta["rng_state"]
-        be = make_backend(backend, [z[f"p{i}"] for i in range(3)], deg)
+        be = make_backend(backend, [z[f"p{i}"] for i in range(3)], deg, CLIP, weight_decay)
         be.set_state([z[f"p{i}"] for i in range(3)], [z[f"m{i}"] for i in range(3)],
                      [z[f"v{i}"] for i in range(3)], meta["step"])
         sched = Plateau(lr=meta["lr"], factor=lr_factor, patience=patience, min_lr=lr_min,
@@ -225,7 +228,7 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
         data = draw_sets(rng, n)
         params = _load_start(init_from, n, rank, deg) if init_from else \
             init_params(rng, n, rank, deg, init)
-        be = make_backend(backend, params, deg)
+        be = make_backend(backend, params, deg, CLIP, weight_decay)
         sched = Plateau(lr=lr, factor=lr_factor, patience=patience, min_lr=lr_min)
         best = dict(P=[p.copy() for p in params], val=float("inf"), epoch=0, eps=eps_of(1))
         first, elapsed = 1, 0.0
@@ -326,6 +329,7 @@ def main():
     ap.add_argument("--patience", type=int, default=LR_PATIENCE, help="plateau: patience (epochs)")
     ap.add_argument("--schedule", choices=["plateau", "cosine", "constant"], default="plateau")
     ap.add_argument("--batch", type=int, default=BATCH, help="mini-batch size")
+    ap.add_argument("--weight-decay", type=float, default=0.0, help="AdamW weight decay")
     ap.add_argument("--polish", type=int, default=0, metavar="N",
                     help="end with at most N Levenberg-Marquardt iterations (rank model)")
     a = ap.parse_args()
@@ -333,7 +337,8 @@ def main():
         ap.error("--degrees needs D_MIN <= D_MAX")
     best = train(a.n, a.rank, a.out, a.seed, a.degrees, a.max_epochs, a.backend, a.init, a.log_every,
                  a.ckpt_every, a.quiet, a.init_from, a.wandb, a.wandb_group, a.wandb_tags, a.lr,
-                 a.lr_min, a.lr_factor, a.patience, a.schedule, a.batch, a.polish, a.wandb_job_type)
+                 a.lr_min, a.lr_factor, a.patience, a.schedule, a.batch, a.polish, a.wandb_job_type,
+                 a.weight_decay)
     print(f"best validation loss {best['val']:.6e} at epoch {best['epoch']}")
 
 

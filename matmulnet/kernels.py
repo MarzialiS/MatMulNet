@@ -2,7 +2,8 @@
 
 One call runs a whole epoch: for every mini-batch the forward pass
 V = ((A H) * (B K)) F, the mean squared error over batch x n^2 entries, its gradient (written
-out by hand), global-norm gradient clipping and the Adam update. The arithmetic follows
+out by hand), global-norm gradient clipping and the Adam update (AdamW with decoupled weight decay when
+`decay` = 1 - lr * weight_decay is not 1). The arithmetic follows
 torch.nn.utils.clip_grad_norm_ and torch.optim.Adam, so the result agrees with the PyTorch
 implementation in `reference_torch.py` up to rounding (see tests/).
 
@@ -82,19 +83,21 @@ def mse(Hc, Kc, Fc, tp, A, B, Y):
 _EPOCHS = {}
 
 
-def train_epoch(Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm, batch):
+def train_epoch(Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm, batch,
+                decay=1.0):
     """One pass over the training set in the order `perm`, in mini-batches of `batch` samples
     (the last one may be smaller). Parameters and Adam moments are updated in place.
     Returns (step, training loss averaged over the samples seen)."""
     key = Hc.shape + (batch,)
     if key not in _EPOCHS:
         _EPOCHS[key] = _build_epoch(*key)
-    return _EPOCHS[key](Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm)
+    return _EPOCHS[key](Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm,
+                        decay)
 
 
 def _build_epoch(m, r, nd, nbt):
     @njit(fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
-    def epoch(Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm):
+    def epoch(Hc, Kc, Fc, mH, mK, mF, vH, vK, vF, step, tp, lr, clip, A, B, Y, perm, decay):
         N = perm.shape[0]
         # transposed mini-batch: AT[j, i] = A[perm[start + i], j], and so on
         AT = np.empty((m, nbt))
@@ -225,20 +228,20 @@ def _build_epoch(m, r, nd, nbt):
                         gH[o + d] = h * tp[d]
                         gK[o + d] = k_ * tp[d]
                         gF[o2 + d] = f * tp[d]
-            _adam(Hf, mHf, vHf, gH, step_size, inv_bc2_sqrt)
-            _adam(Kf, mKf, vKf, gK, step_size, inv_bc2_sqrt)
-            _adam(Ff, mFf, vFf, gF, step_size, inv_bc2_sqrt)
+            _adam(Hf, mHf, vHf, gH, step_size, inv_bc2_sqrt, decay)
+            _adam(Kf, mKf, vKf, gK, step_size, inv_bc2_sqrt, decay)
+            _adam(Ff, mFf, vFf, gF, step_size, inv_bc2_sqrt, decay)
         return step, loss_sum / N
 
     return epoch
 
 
 @njit(cache=True, fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
-def _adam(p, m, v, g, step_size, inv_bc2_sqrt):
+def _adam(p, m, v, g, step_size, inv_bc2_sqrt, decay):
     for i in range(p.size):
         gi = g[i]
         mi = BETA1 * m[i] + (1.0 - BETA1) * gi
         vi = BETA2 * v[i] + (1.0 - BETA2) * gi * gi
         m[i] = mi
         v[i] = vi
-        p[i] -= step_size * mi / (np.sqrt(vi) * inv_bc2_sqrt + ADAM_EPS)
+        p[i] = p[i] * decay - step_size * mi / (np.sqrt(vi) * inv_bc2_sqrt + ADAM_EPS)
