@@ -69,6 +69,13 @@ continues exactly as if it had never stopped.
 `--wandb ENTITY/PROJECT` also sends the logged quantities to Weights & Biases (`pip install
 wandb`).
 
+Departures from the protocol, all off by default (see `python -m matmulnet.train --help`):
+`--lr`, `--lr-min`, `--lr-factor`, `--patience`, `--schedule plateau|cosine|constant` and
+`--batch` change the optimiser's settings; `--weight-decay` switches to AdamW; a `--init-from`
+file with fewer terms than `--rank` is completed with small random terms, `--group-lasso`
+penalises the norms of the terms and `--prune-to` keeps the largest ones; `--polish N` ends a
+rank run with at most `N` Levenberg–Marquardt iterations on the full-tensor residual.
+
 ### Two implementations of the training step
 
 `matmulnet/reference_torch.py` is the PyTorch implementation: an `nn.Module`, autograd,
