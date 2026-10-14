@@ -21,6 +21,16 @@ rate cannot decrease any more (plateau: it is at --lr-min; the other schedules: 
 --polish N ends with at most N Levenberg-Marquardt iterations from the best point, as in
 matmulnet.train.
 
+Pressures towards discrete solutions (the coefficients of the known schemes lie on a small
+grid: 0, +-1/8, +-1/4, +-1/2, +-1 for the rational 48-term scheme): --quant LAM adds the penalty
+lam * sum_i dist(theta_i, grid)^2, lam growing linearly from 0 to LAM over the run; --l1 LAM
+the L1 proximal step (soft threshold lr * lam, lam decreasing from LAM to 0); --balance rescales
+every term to equal norms of its three factors; --freeze-every N snaps to the grid, and
+freezes, every N steps the entries within delta of it (delta from --freeze-delta, after the
+fraction --freeze-start of the run). With any of them the run takes the whole budget (or stops
+when the rounded point is exact), the polish starts from the last point, and rounded.npz holds
+the point rounded to the grid.
+
 Files written in --out: per_step.csv (step, lr, loss, rho, W every --log-every steps), best.npz
 and last.npz (format of matmulnet.train), summary.json, ckpt.npz (complete state: a run that
 is interrupted continues identically), polished.npz with --polish.
@@ -34,11 +44,12 @@ import numpy as np
 from numba import njit
 
 from . import metrics
-from .kernels import BETA1, BETA2, _adam
+from .kernels import ADAM_EPS, BETA1, BETA2, _adam
 from .schedule import Plateau, cosine_lr
 from .train import _load_start, _polish, _wandb_run
 
 CLIP = 10.0
+GRID = (0.0, 0.125, 0.25, 0.5, 1.0)       # with signs: the coefficients of the rational 48-term scheme
 
 
 @njit(cache=True, fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
@@ -112,6 +123,94 @@ def adam_steps(H, K, F, mH, mK, mF, vH, vK, vF, step, lr, clip, M, losses):
     return step
 
 
+@njit(cache=True, fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
+def _nearest(x, grid):
+    """The point of the symmetric grid {+-g : g in grid} nearest to x."""
+    a = abs(x)
+    best = grid[0]
+    for g in grid:
+        if abs(a - g) < abs(a - best):
+            best = g
+    return best if x >= 0.0 else -best
+
+
+@njit(cache=True, fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
+def _adam_discrete(p, m, v, g, free, step_size, inv_bc2_sqrt, quant, grid, shrink):
+    """Adam on the free entries (free[i] = 1; the others keep their value) with the gradient
+    of quant * dist(p, grid)^2 added to g, then the soft threshold of the L1 prox (shrink)."""
+    for i in range(p.size):
+        if free[i] == 0.0:
+            continue
+        pi = p[i]
+        gi = g[i] + 2.0 * quant * (pi - _nearest(pi, grid))
+        mi = BETA1 * m[i] + (1.0 - BETA1) * gi
+        vi = BETA2 * v[i] + (1.0 - BETA2) * gi * gi
+        m[i] = mi
+        v[i] = vi
+        pi -= step_size * mi / (np.sqrt(vi) * inv_bc2_sqrt + ADAM_EPS)
+        if shrink > 0.0:
+            if pi > shrink:
+                pi -= shrink
+            elif pi < -shrink:
+                pi += shrink
+            else:
+                pi = 0.0
+        p[i] = pi
+
+
+@njit(cache=True, fastmath=True, boundscheck=False, nogil=True, error_model="numpy")
+def adam_steps_discrete(H, K, F, mH, mK, mF, vH, vK, vF, step, lr, clip, M, losses, quant, l1,
+                        grid, fH, fK, fF):
+    """adam_steps with the pressures towards discrete solutions: the penalty
+    quant * sum_i dist(theta_i, grid)^2 (not clipped, not counted in losses), the L1 proximal
+    step of weight l1 (threshold lr * l1), and frozen entries (f = 0)."""
+    m, r = H.shape
+    gH = np.empty((m, r))
+    gK = np.empty((m, r))
+    gF = np.empty((r, m))
+    gHf, gKf, gFf = gH.reshape(-1), gK.reshape(-1), gF.reshape(-1)
+    fHf, fKf, fFf = fH.reshape(-1), fK.reshape(-1), fF.reshape(-1)
+    for it in range(losses.shape[0]):
+        losses[it] = loss_grad(H, K, F, M, gH, gK, gF)
+        g2 = 0.0
+        for i in range(gHf.shape[0]):
+            g2 += fHf[i] * gHf[i] * gHf[i] + fKf[i] * gKf[i] * gKf[i] + fFf[i] * gFf[i] * gFf[i]
+        coef = clip / (np.sqrt(g2) + 1e-6)
+        if coef < 1.0:
+            for i in range(gHf.shape[0]):
+                gHf[i] *= coef
+                gKf[i] *= coef
+                gFf[i] *= coef
+        step += 1.0
+        step_size = lr / (1.0 - BETA1 ** step)
+        inv_bc2_sqrt = 1.0 / np.sqrt(1.0 - BETA2 ** step)
+        shrink = lr * l1
+        _adam_discrete(H.reshape(-1), mH.reshape(-1), vH.reshape(-1), gHf, fHf, step_size,
+                       inv_bc2_sqrt, quant, grid, shrink)
+        _adam_discrete(K.reshape(-1), mK.reshape(-1), vK.reshape(-1), gKf, fKf, step_size,
+                       inv_bc2_sqrt, quant, grid, shrink)
+        _adam_discrete(F.reshape(-1), mF.reshape(-1), vF.reshape(-1), gFf, fFf, step_size,
+                       inv_bc2_sqrt, quant, grid, shrink)
+    return step
+
+
+def rounded(P, grid):
+    """Every coefficient replaced by the nearest point of the symmetric grid."""
+    g = np.concatenate([-grid[::-1], grid])
+    return [g[np.argmin(np.abs(p[..., None] - g), axis=-1)] for p in P]
+
+
+def balance(P):
+    """Rescale every term so that ||h_s|| = ||k_s|| = ||f_s|| (the term is unchanged)."""
+    H, K, F = P
+    nh, nk, nf = np.linalg.norm(H, axis=0), np.linalg.norm(K, axis=0), np.linalg.norm(F, axis=1)
+    ok = (nh > 0) & (nk > 0) & (nf > 0)
+    g = np.cbrt(nh * nk * nf)
+    for x, nx, ax in ((H, nh, 0), (K, nk, 0), (F, nf, 1)):
+        f = np.where(ok, g / np.where(ok, nx, 1.0), 1.0)
+        x *= f[None, :] if ax == 0 else f[:, None]
+
+
 def exact_loss(H, K, F, M):
     return loss_grad(H, K, F, M, np.empty_like(H), np.empty_like(K), np.empty_like(F))
 
@@ -132,13 +231,24 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                 lr_factor=0.5, patience=10_000, schedule="plateau", clip=CLIP, chunk=100,
                 stop_rho=1e-8, stall=100_000, polish=0, log_every=1000, ckpt_every=200_000,
                 quiet=False, wandb=None, wandb_group=None, wandb_tags=None, wandb_job_type=None,
-                _interrupt_at=None):
-    if steps % chunk or log_every % chunk or ckpt_every % chunk:
-        raise SystemExit("--steps, --log-every and --ckpt-every must be multiples of --chunk")
+                quant=0.0, l1=0.0, grid=GRID, balance_terms=False, freeze_every=0,
+                freeze_delta=(0.05, 0.05), freeze_start=0.0, _interrupt_at=None):
+    if steps % chunk or log_every % chunk or ckpt_every % chunk or freeze_every % chunk:
+        raise SystemExit("--steps, --log-every, --ckpt-every and --freeze-every must be "
+                         "multiples of --chunk")
+    discrete = bool(quant or l1 or balance_terms or freeze_every)
+    if balance_terms and freeze_every:
+        raise SystemExit("--balance rescales the frozen entries: use one or the other")
     cfg = dict(n=n, rank=rank, seed=seed, init_from=init_from, loss="exact", steps=steps,
                lr_start=lr, lr_min=lr_min, lr_factor=lr_factor, patience=patience,
                schedule=schedule, clip=clip, chunk=chunk, stop_rho=stop_rho, stall=stall,
-               polish=polish, border=False, prune_to=0)
+               polish=polish, border=False, prune_to=0, discrete=discrete, quant=quant, l1=l1,
+               grid=[float(g) for g in grid], balance=balance_terms, freeze_every=freeze_every,
+               freeze_delta=[float(d) for d in freeze_delta], freeze_start=freeze_start)
+    # values of the options added after the first runs, for their checkpoints
+    old = dict(discrete=False, quant=0.0, l1=0.0, grid=list(GRID), balance=False,
+               freeze_every=0, freeze_delta=[0.05, 0.05], freeze_start=0.0)
+    grid_arr = np.asarray(sorted(grid), dtype=np.float64)
     os.makedirs(out, exist_ok=True)
     ckpt = os.path.join(out, "ckpt.npz")
     M = metrics.matmul_tensor(n)
@@ -149,9 +259,12 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
         z = np.load(ckpt)
         meta = json.loads(str(z["meta"]))
         for key in cfg:
-            if meta[key] != cfg[key]:
-                raise SystemExit(f"{ckpt} was written with {key}={meta[key]}, not {cfg[key]}")
+            if meta.get(key, old.get(key)) != cfg[key]:
+                raise SystemExit(f"{ckpt} was written with {key}={meta.get(key, old.get(key))}, "
+                                 f"not {cfg[key]}")
         P, Mo, V = ([z[f"{t}{i}"].copy() for i in range(3)] for t in "pmv")
+        free = [z[f"f{i}"].copy() for i in range(3)] if "f0" in z.files else \
+            [np.ones_like(p) for p in P]
         best = dict(P=[z[f"b{i}"].copy() for i in range(3)], loss=meta["best_loss"],
                     step=meta["best_step"])
         sched = Plateau(lr=meta["lr"], factor=lr_factor, patience=sched_patience, min_lr=lr_min,
@@ -166,13 +279,14 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
             m = n * n
             P = [rng.standard_normal(s) for s in ((m, rank), (m, rank), (rank, m))]
         Mo, V = [np.zeros_like(p) for p in P], [np.zeros_like(p) for p in P]
+        free = [np.ones_like(p) for p in P]
         loss0 = exact_loss(*P, M)
         best = dict(P=[p.copy() for p in P], loss=loss0, step=0)
         sched = Plateau(lr=lr, factor=lr_factor, patience=sched_patience, min_lr=lr_min)
         first, adam_step, elapsed, last_gain, stop = 1, 0.0, 0.0, 0, None
 
     log_path = os.path.join(out, "per_step.csv")
-    kept = ["step,lr,loss,rho,weight\n"]
+    kept = ["step,lr,loss,rho,weight" + (",frozen,rho_rounded" if discrete else "") + "\n"]
     if first > 1 and os.path.exists(log_path):      # drop the rows written after the checkpoint
         with open(log_path) as fh:
             kept += [row for row in fh.readlines()[1:] if int(row.split(",")[0]) < first * chunk]
@@ -190,8 +304,9 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
         meta = dict(cfg, chunk_done=c, adam_step=adam_step, lr=sched.lr, pl_best=sched.best,
                     pl_bad=sched.bad, best_loss=best["loss"], best_step=best["step"],
                     seconds=seconds, last_gain=last_gain, stop=stop)
-        arrays = {f"{t}{i}": x for t, g in (("p", P), ("m", Mo), ("v", V), ("b", best["P"]))
-                  for i, x in enumerate(g)}
+        groups = (("p", P), ("m", Mo), ("v", V), ("b", best["P"])) + \
+            ((("f", free),) if discrete else ())
+        arrays = {f"{t}{i}": x for t, g in groups for i, x in enumerate(g)}
         np.savez(ckpt + ".tmp.npz", meta=json.dumps(meta), **arrays)
         os.replace(ckpt + ".tmp.npz", ckpt)
         loss_now = exact_loss(*P, M)
@@ -202,17 +317,44 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                        rho=rho_b, weight=w_b, last_loss=loss_now, last_rho=rho_l, last_weight=w_l,
                        steps_done=c * chunk, stop=stop, seconds=seconds,
                        best_val_loss=best["loss"])
+        if discrete:
+            R = rounded(P, grid_arr)
+            summary.update(rounded_rho=metrics.rho(*R, n), frozen=frozen_fraction())
+            np.savez(os.path.join(out, "rounded.npz"), H=R[0], K=R[1], F=R[2], n=n,
+                     rho=summary["rounded_rho"])
         with open(os.path.join(out, "summary.json"), "w") as fh:
             json.dump(summary, fh, indent=2)
         if run:
             run.summary.update({k: v for k, v in summary.items() if k not in cfg})
         return summary
 
+    def frozen_fraction():
+        return float(1.0 - sum(f.sum() for f in free) / sum(f.size for f in free))
+
+    def freeze(c):
+        """Snap to the grid, and freeze, the free entries within delta of it."""
+        frac = (c * chunk / steps - freeze_start) / max(1e-12, 1.0 - freeze_start)
+        delta = freeze_delta[0] + (freeze_delta[1] - freeze_delta[0]) * frac
+        for p, f, q in zip(P, free, rounded(P, grid_arr)):
+            hit = (f == 1.0) & (np.abs(p - q) < delta)
+            p[hit] = q[hit]
+            f[hit] = 0.0
+
     c = first - 1
     if stop is None:
         for c in range(first, n_chunks + 1):
             lr_now = lr_of(c)
-            adam_step = adam_steps(*P, *Mo, *V, adam_step, lr_now, clip, M, losses)
+            if discrete:
+                adam_step = adam_steps_discrete(*P, *Mo, *V, adam_step, lr_now, clip, M, losses,
+                                                quant * c / n_chunks, l1 * (1.0 - c / n_chunks),
+                                                grid_arr, *free)
+                if balance_terms:
+                    balance(P)
+                if freeze_every and (c * chunk) % freeze_every == 0 and \
+                        c * chunk >= freeze_start * steps:
+                    freeze(c)
+            else:
+                adam_step = adam_steps(*P, *Mo, *V, adam_step, lr_now, clip, M, losses)
             loss = exact_loss(*P, M)
             if schedule == "plateau":
                 sched.step(loss)
@@ -220,7 +362,14 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                 if loss < best["loss"] * (1.0 - 1e-3):
                     last_gain = c
                 best.update(P=[p.copy() for p in P], loss=loss, step=c * chunk)
-            if rho_of_loss(best["loss"], n) < stop_rho:
+            if discrete:
+                # the pressures move the point away from the best one: run the whole budget,
+                # unless the rounded point is already an exact decomposition
+                if (c * chunk) % log_every == 0 and metrics.rho(*rounded(P, grid_arr), n) < 1e-12:
+                    stop = "rounded"
+                elif c == n_chunks:
+                    stop = "budget"
+            elif rho_of_loss(best["loss"], n) < stop_rho:
                 stop = "rho"
             elif stall and (c - last_gain) * chunk >= stall and \
                     (schedule != "plateau" or sched.lr <= lr_min * (1 + 1e-12)):
@@ -229,10 +378,16 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                 stop = "budget"
             if (c * chunk) % log_every == 0 or stop:
                 rho, w = rho_of_loss(loss, n), metrics.weight(*P)
-                log.write(f"{c * chunk},{lr_now!r},{loss!r},{rho!r},{w!r}\n")
+                row = dict(lr=lr_now, loss=loss, rho=rho, weight=w,
+                           best_rho=rho_of_loss(best["loss"], n))
+                extra = ""
+                if discrete:
+                    row.update(frozen=frozen_fraction(),
+                               rho_rounded=metrics.rho(*rounded(P, grid_arr), n))
+                    extra = f",{row['frozen']!r},{row['rho_rounded']!r}"
+                log.write(f"{c * chunk},{lr_now!r},{loss!r},{rho!r},{w!r}{extra}\n")
                 if run:
-                    run.log(dict(lr=lr_now, loss=loss, rho=rho, weight=w,
-                                 best_rho=rho_of_loss(best["loss"], n)), step=c * chunk)
+                    run.log(row, step=c * chunk)
             if (c * chunk) % ckpt_every == 0 or stop:
                 summary = save(c)
                 if not quiet:
@@ -249,7 +404,10 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
         with open(summary_path) as fh:
             summary = json.load(fh)
         if "polish_rho" not in summary:
-            summary.update(_polish(out, dict(P=[p[..., None] for p in best["P"]]), cfg, polish))
+            # with the discrete pressures, polish the last point (the best one by the loss
+            # alone comes from before the pressures acted)
+            start = P if discrete else best["P"]
+            summary.update(_polish(out, dict(P=[p[..., None] for p in start]), cfg, polish))
             with open(summary_path, "w") as fh:
                 json.dump(summary, fh, indent=2)
             if run:
@@ -291,11 +449,27 @@ def main():
     ap.add_argument("--wandb-group")
     ap.add_argument("--wandb-tags", nargs="*")
     ap.add_argument("--wandb-job-type")
+    g = ap.add_argument_group("pressures towards discrete solutions")
+    g.add_argument("--quant", type=float, default=0.0, metavar="LAM",
+                   help="penalty LAM * sum dist(theta, grid)^2, its weight growing from 0 to LAM")
+    g.add_argument("--l1", type=float, default=0.0, metavar="LAM",
+                   help="L1 proximal step, weight decreasing from LAM to 0")
+    g.add_argument("--grid", type=float, nargs="+", default=list(GRID),
+                   help="non-negative grid values (with signs)")
+    g.add_argument("--balance", action="store_true",
+                   help="rescale every term to ||h|| = ||k|| = ||f|| after every chunk")
+    g.add_argument("--freeze-every", type=int, default=0, metavar="N",
+                   help="every N steps, snap and freeze the entries within delta of the grid")
+    g.add_argument("--freeze-delta", type=float, nargs=2, default=[0.05, 0.05],
+                   metavar=("START", "END"), help="delta, linear from START to END")
+    g.add_argument("--freeze-start", type=float, default=0.0,
+                   help="fraction of the steps before freezing starts")
     a = ap.parse_args()
     best = train_exact(a.n, a.rank, a.out, a.seed, a.init_from, a.steps, a.lr, a.lr_min,
                        a.lr_factor, a.patience, a.schedule, a.clip, a.chunk, a.stop_rho, a.stall,
                        a.polish, a.log_every, a.ckpt_every, a.quiet, a.wandb, a.wandb_group,
-                       a.wandb_tags, a.wandb_job_type)
+                       a.wandb_tags, a.wandb_job_type, a.quant, a.l1, a.grid, a.balance,
+                       a.freeze_every, a.freeze_delta, a.freeze_start)
     print(f"best rho {rho_of_loss(best['loss'], a.n):.6e} at step {best['step']}")
 
 

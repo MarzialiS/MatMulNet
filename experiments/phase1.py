@@ -306,7 +306,9 @@ def collect(a):
             z = np.load(os.path.join(run_dir, "polished.npz"))
             json.dump(same_terms(z["H"], z["K"], z["F"], ref), open(cache, "w"))
         r = dict(start=name, level=level(name), rho=s["polish_rho"], weight=s["polish_weight"],
-                 train_rho=s["rho"], best_val_loss=s["best_val_loss"], seconds=s["seconds"],
+                 train_rho=s["last_rho"] if s.get("discrete") else s["rho"],
+                 rounded_rho=s.get("rounded_rho"), best_val_loss=s["best_val_loss"],
+                 seconds=s["seconds"],
                  terms_vs_scheme=json.load(open(cache)), steps=s.get("steps_done"),
                  stop=s.get("stop"))
         r["solved"] = solved(r["rho"], r["weight"])

@@ -68,3 +68,53 @@ def test_strassen_from_noise(tmp_path):
         if rho_of_loss(best["loss"], 2) < 1e-8:
             break
     assert rho_of_loss(best["loss"], 2) < 1e-8
+
+
+def test_balance_keeps_the_tensor():
+    from matmulnet.exact import balance
+    rng = np.random.default_rng(4)
+    P = [rng.standard_normal((9, 5)), 3 * rng.standard_normal((9, 5)), rng.standard_normal((5, 9))]
+    T = metrics.tensor(*P)
+    balance(P)
+    assert np.allclose(metrics.tensor(*P), T, rtol=1e-13, atol=1e-13)
+    norms = [np.linalg.norm(P[0], axis=0), np.linalg.norm(P[1], axis=0), np.linalg.norm(P[2], axis=1)]
+    assert np.allclose(norms[0], norms[1]) and np.allclose(norms[0], norms[2])
+
+
+def _strassen_start(tmp_path, noise):
+    """Strassen's 7-term scheme plus Gaussian noise, as a starting-point file."""
+    H = np.array([[1, 0, 1, 0, 1, -1, 0], [0, 0, 0, 0, 1, 0, 1], [0, 1, 0, 0, 0, 1, 0],
+                  [1, 1, 0, 1, 0, 0, -1]], dtype=float)
+    K = np.array([[1, 1, 0, -1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0], [0, 0, 0, 1, 0, 0, 1],
+                  [1, 0, -1, 0, 1, 0, 1]], dtype=float)
+    F = np.array([[1, 0, 0, 1], [0, 0, 1, -1], [0, 1, 0, 1], [1, 0, 1, 0], [-1, 1, 0, 0],
+                  [0, 0, 0, 1], [1, 0, 0, 0]], dtype=float)
+    assert metrics.rho(H, K, F, 2) < 1e-15
+    rng = np.random.default_rng(5)
+    P = [x + noise * rng.standard_normal(x.shape) for x in (H, K, F)]
+    path = str(tmp_path / "start.npz")
+    np.savez(path, H=P[0], K=P[1], F=P[2], n=2)
+    return path
+
+
+def test_freeze_recovers_a_discrete_scheme(tmp_path):
+    start = _strassen_start(tmp_path, 0.02)
+    best = train_exact(2, 7, str(tmp_path / "run"), init_from=start, steps=20_000, lr=1e-3,
+                       freeze_every=1000, freeze_delta=(0.1, 0.1), quiet=True)
+    import json
+    s = json.load(open(tmp_path / "run" / "summary.json"))
+    assert s["stop"] == "rounded" and s["rounded_rho"] < 1e-15
+    assert best["loss"] < 1e-6
+
+
+def test_discrete_resume_is_exact(tmp_path):
+    start = _strassen_start(tmp_path, 0.3)
+    kw = dict(init_from=start, steps=3000, lr=1e-2, chunk=100, log_every=500, ckpt_every=1000,
+              quiet=True, quant=1.0, l1=0.1, freeze_every=500, freeze_delta=(0.01, 0.05))
+    train_exact(2, 7, str(tmp_path / "a"), **kw)
+    train_exact(2, 7, str(tmp_path / "b"), _interrupt_at=20, **kw)
+    train_exact(2, 7, str(tmp_path / "b"), **kw)
+    za, zb = np.load(tmp_path / "a" / "ckpt.npz"), np.load(tmp_path / "b" / "ckpt.npz")
+    assert all(np.array_equal(za[k], zb[k]) for k in ("p0", "p1", "p2", "m0", "v0", "f0", "f2"))
+    assert (tmp_path / "a" / "per_step.csv").read_text() == \
+        (tmp_path / "b" / "per_step.csv").read_text()
