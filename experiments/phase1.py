@@ -46,7 +46,7 @@ from sweep import cpu_pool  # noqa: E402
 
 from matmulnet import metrics  # noqa: E402
 
-SIGMAS = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+SIGMAS = [0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 1.0, 1.5]
 TS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 SEEDS = [1, 2, 3, 4, 5]
 RHO_OK, W_MAX = 1e-10, 1e4         # W of the rational 48-term scheme: 210.5
@@ -92,7 +92,9 @@ def cmd_starts(a):
     os.makedirs(out, exist_ok=True)
     np.savez(os.path.join(out, "scheme.npz"), H=coeff[0][..., 0], K=coeff[1][..., 0],
              F=coeff[2][..., 0], n=4)
-    for name in start_names():
+    for name in selected(a):
+        if os.path.exists(os.path.join(out, name + ".npz")):
+            continue
         kind, rest = name.split("_", 1)
         value, seed = float(rest.split("_")[0][1:]), int(name.rsplit("seed", 1)[1])
         rng = np.random.default_rng(seed)
@@ -200,6 +202,25 @@ def cmd_train(a):
     pinned_pool(a, jobs)
 
 
+def cmd_exact(a):
+    jobs = []
+    for name in selected(a):
+        out = os.path.join(a.dir, "exact", a.tag, name)
+        summary = os.path.join(out, "summary.json")
+        if os.path.exists(summary) and "polish_rho" in json.load(open(summary)):
+            continue
+        os.makedirs(out, exist_ok=True)
+        cmd = [sys.executable, "-m", "matmulnet.exact", "--n", "4", "--rank", "48",
+               "--init-from", os.path.join(a.dir, "starts", name + ".npz"), "--out", out,
+               "--polish", str(POLISH_ITER), "--quiet", *a.extra]
+        if a.wandb:
+            cmd += ["--wandb", a.wandb, "--wandb-group", f"phase1b_{a.tag}_{level(name)}",
+                    "--wandb-job-type", "phase1b-exact", "--wandb-tags", "round-2", "phase-1b",
+                    a.tag]
+        jobs.append((f"{a.tag}/{name}", cmd, os.path.join(out, "stdout.log")))
+    pinned_pool(a, jobs)
+
+
 def drop_least_damage(H, K, F):
     """Remove the term whose removal increases the residual rho the least."""
     R = metrics.tensor(H, K, F) - metrics.matmul_tensor(4)
@@ -267,6 +288,7 @@ def collect(a):
         r = json.load(open(f))
         rows.setdefault(("lm", r["level"]), []).append(r)
     for f in glob.glob(os.path.join(a.dir, "train", "*", "*", "summary.json")) + \
+            glob.glob(os.path.join(a.dir, "exact", "*", "*", "summary.json")) + \
             glob.glob(os.path.join(a.dir, "reduce", "*", "*", "r*", "summary.json")):
         s = json.load(open(f))
         if "polish_rho" not in s:
@@ -277,44 +299,57 @@ def collect(a):
             tag = "reduce:" + tag
         else:
             tag, name = run_dir.split(os.sep)[-2:]
+            if os.sep + "exact" + os.sep in run_dir:
+                tag = "x:" + tag
         cache = os.path.join(run_dir, "terms_vs_scheme.json")
         if not os.path.exists(cache):
             z = np.load(os.path.join(run_dir, "polished.npz"))
             json.dump(same_terms(z["H"], z["K"], z["F"], ref), open(cache, "w"))
         r = dict(start=name, level=level(name), rho=s["polish_rho"], weight=s["polish_weight"],
                  train_rho=s["rho"], best_val_loss=s["best_val_loss"], seconds=s["seconds"],
-                 terms_vs_scheme=json.load(open(cache)))
+                 terms_vs_scheme=json.load(open(cache)), steps=s.get("steps_done"),
+                 stop=s.get("stop"))
         r["solved"] = solved(r["rho"], r["weight"])
         rows.setdefault((tag, r["level"]), []).append(r)
     return rows
 
 
 def cmd_table(a):
+    """One row per method, one column per start level: solved / runs, with the number of
+    starts that training alone brings below 1e-8 (t) and the median rho at the end."""
+    import fnmatch
     rows = collect(a)
+    if a.seeds != SEEDS or a.levels:
+        keep = set(selected(a))
+        rows = {k: [r for r in rs if r["start"] in keep] for k, rs in rows.items()}
+        rows = {k: rs for k, rs in rows.items() if rs}
     methods = ["lm"] + sorted({m for m, _ in rows} - {"lm"})
+    if a.methods:
+        methods = [m for m in methods if any(fnmatch.fnmatch(m, p) for p in a.methods)]
     levels = [lv for lv in dict.fromkeys(level(n) for n in start_names()) if
               any((m, lv) in rows for m in methods)]
-    print("solved / runs  (s = the scheme itself, o = another decomposition); median rho at the end")
-    print(f"{'level':<12}" + "".join(f"{m:>26}" for m in methods))
-    for lv in levels:
+    width = max(len(m) for m in methods) + 2
+    print("solved / runs [t: training alone reaches rho < 1e-8], median rho at the end")
+    print(f"{'method':<{width}}" + "".join(f"{lv:>24}" for lv in levels))
+    for m in methods:
         cells = []
-        for m in methods:
+        for lv in levels:
             rs = rows.get((m, lv), [])
             if not rs:
-                cells.append(f"{'-':>26}")
+                cells.append(f"{'-':>24}")
                 continue
-            ok = [r for r in rs if r["solved"]]
-            same = sum(r["terms_vs_scheme"] < 1e-6 for r in ok)
+            ok = sum(r["solved"] for r in rs)
+            alone = "" if m == "lm" else f" [{sum(r['train_rho'] < 1e-8 for r in rs)}t]"
             med = np.median([r["rho"] for r in rs])
-            cells.append(f"{len(ok)}/{len(rs)} ({same}s {len(ok) - same}o) {med:9.1e}".rjust(26))
-        print(f"{lv:<12}" + "".join(cells))
+            cells.append(f"{ok}/{len(rs)}{alone} {med:8.1e}".rjust(24))
+        print(f"{m:<{width}}" + "".join(cells))
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["starts", "lm", "lm-one", "train", "reduce", "reduce-one",
-                                        "table"])
+    ap.add_argument("command", choices=["starts", "lm", "lm-one", "train", "exact", "reduce",
+                                        "reduce-one", "table"])
     ap.add_argument("name", nargs="?", help="lm-one, reduce-one: the starting point")
     ap.add_argument("--dir", default=DEFAULT_DIR)
     ap.add_argument("--scheme", default=os.path.join(ROOT, "schemes", "rational48.npz"))
@@ -330,11 +365,13 @@ def main():
     ap.add_argument("--target", type=int, default=48, help="reduce: final number of terms")
     ap.add_argument("--stage-epochs", type=int, default=10_000, help="reduce: epochs per term")
     ap.add_argument("--stage-lr", type=float, default=1e-3, help="reduce: initial learning rate")
+    ap.add_argument("--methods", nargs="+", help="table: methods to show (glob patterns)")
     argv = sys.argv[1:]
     cut = argv.index("--") if "--" in argv else len(argv)
     a = ap.parse_args(argv[:cut])
-    a.extra = argv[cut + 1:]          # train: options passed on to matmulnet.train
+    a.extra = argv[cut + 1:]          # train, exact: options passed on to the trainer
     {"starts": cmd_starts, "lm": cmd_lm, "lm-one": cmd_lm_one, "train": cmd_train,
+     "exact": cmd_exact,
      "reduce": cmd_reduce, "reduce-one": cmd_reduce_one, "table": cmd_table}[a.command](a)
 
 
