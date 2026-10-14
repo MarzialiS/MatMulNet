@@ -76,6 +76,18 @@ file with fewer terms than `--rank` is completed with small random terms, `--gro
 penalises the norms of the terms and `--prune-to` keeps the largest ones; `--polish N` ends a
 rank run with at most `N` Levenberg–Marquardt iterations on the full-tensor residual.
 
+### Training on the exact loss
+
+    python -m matmulnet.exact --n 4 --rank 48 --init-from start.npz --out runs/x --lr 1e-3 --polish 200
+
+replaces the sampled triples by their expectation, `||T − M_n||_F^2 / (9 n^2)` (the per-entry
+squared error averaged over `A, B` with entries uniform in `[-1, 1]`): every step is a
+full-batch Adam step on the tensor of the factors (about 116 µs for `4 x 4`, `r = 48`, on one
+performance core), and there are no training or validation sets. `--schedule`, `--lr`,
+`--lr-min`, `--lr-factor` and `--patience` (in steps) as above; the run stops at `--steps`,
+when `ρ < --stop-rho`, or on a stall. `--quant`, `--l1`, `--balance` and `--freeze-*` push the
+coefficients towards a grid of discrete values (see `--help`).
+
 ### Two implementations of the training step
 
 `matmulnet/reference_torch.py` is the PyTorch implementation: an `nn.Module`, autograd,
