@@ -54,7 +54,7 @@ seeds 1–5): protocol on the exact loss 4/5 and lr 1e-3 4/5, all four by traini
 
 1. **All runs end in the same family of minima, whatever the schedule.** Of the 380 runs of
    the baseline and stages A–C, 369 end with 64 ρ² within 5% of an integer k ∈ {1, …, 6}
-   (k = 3: 131 runs, 4: 134, 5: 74, 2: 29, 6: 10). The residual R = T − M₄ has, in each of its
+   (k = 4: 134 runs, 3: 125, 5: 74, 2: 25, 6: 10, 1: 1). The residual R = T − M₄ has, in each of its
    three flattenings, exactly k singular values equal to 1 and the others below 0.1: the 48 terms
    approximate M₄ minus k orthonormal rank-one tensors — "M₄ minus k entries" up to the
    symmetries of M₄, which is why the residual looks spread out in the standard basis. They
