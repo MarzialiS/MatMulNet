@@ -119,6 +119,12 @@ learning rate is still ≥ 1e-5). The scheduler is fixed in `matmulnet/schedule.
 reduction is applied down to `--lr-min` (identical to torch above 2·10⁻⁸, hence for the
 paper's protocol).
 
+Rerun with the fixed scheduler (tags `B2-lr1e-4-min1e-10`, `B2-lr1e-3-min1e-10`, same starts,
+40 runs): the learning rate now reaches 1e-10, every run stops on a stall (median 780,650 and
+662,650 steps instead of the 2·10⁶ budget) and ends in the same minimum as the corresponding A
+run (final ρ equal within 1e-3 in 40/40; 0 solved, median ρ 0.234 and 0.250). Rows in
+`phase1b/rerun_B2.csv`.
+
 ## Reproduce
 
     python experiments/phase1.py starts --dir runs/round2-phase1 --scheme results/4x4-round-1/known_schemes/rational48.npz \
