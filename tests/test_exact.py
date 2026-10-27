@@ -70,6 +70,42 @@ def test_strassen_from_noise(tmp_path):
     assert rho_of_loss(best["loss"], 2) < 1e-8
 
 
+def _plateau_floor(lr, factor, min_lr, torch_rule):
+    from matmulnet.schedule import Plateau
+    sched = Plateau(lr=lr, factor=factor, patience=0, min_lr=min_lr)
+    seen = [lr]
+    for _ in range(200):
+        if torch_rule:          # torch's ReduceLROnPlateau: skip a reduction below eps = 1e-8
+            new = max(seen[-1] * factor, min_lr)
+            seen.append(new if seen[-1] - new > 1e-8 else seen[-1])
+        else:
+            sched.best = 0.0    # no improvement: every step is a plateau
+            seen.append(sched.step(1.0))
+    return seen
+
+
+@pytest.mark.parametrize("lr,factor,min_lr", [(1e-2, 0.5, 1e-8), (1e-4, 0.5, 1e-10),
+                                              (1e-4, 0.1, 1e-8)])
+def test_plateau_reaches_its_floor(lr, factor, min_lr):
+    assert _plateau_floor(lr, factor, min_lr, torch_rule=False)[-1] == min_lr
+    assert _plateau_floor(lr, factor, min_lr, torch_rule=True)[-1] > 1e-8   # what torch does
+
+
+def test_plateau_is_torch_above_2e8():
+    """The paper's protocol (1e-4 halved down to 1e-6) is unchanged."""
+    assert _plateau_floor(1e-4, 0.5, 1e-6, False) == _plateau_floor(1e-4, 0.5, 1e-6, True)
+
+
+def test_stall_with_a_low_floor(tmp_path):
+    """2 x 2 with 5 terms (no exact decomposition): with --lr-min 1e-8 the learning rate reaches
+    the floor and the run stops on a stall instead of running the whole budget."""
+    import json
+    train_exact(2, 5, str(tmp_path / "run"), seed=1, steps=200_000, lr=1e-2, lr_min=1e-8,
+                patience=200, stall=2000, quiet=True)
+    s = json.load(open(tmp_path / "run" / "summary.json"))
+    assert s["stop"] == "stall" and s["steps_done"] < 200_000     # a stall needs lr = lr_min
+
+
 def test_balance_keeps_the_tensor():
     from matmulnet.exact import balance
     rng = np.random.default_rng(4)

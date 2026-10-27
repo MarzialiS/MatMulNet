@@ -42,3 +42,5 @@ follows `torch.optim.lr_scheduler.ReduceLROnPlateau`, which skips a reduction sm
 reaches the floor 1e-8, and the stall rule waits for the floor. The outcome is not affected —
 between 10⁶ and 10⁷ steps ρ falls by about 0.1% while W grows by about 20% — but the runs took
 the whole budget. The same holds for the phase-1b and block-1 configurations with floor 1e-8.
+Fixed afterwards in `matmulnet/schedule.py` (every reduction is applied down to `--lr-min`; see
+`../PHASE1B.md`, "Correction"); the runs of this block were made with the old rule.

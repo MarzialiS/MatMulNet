@@ -101,6 +101,24 @@ Directions suggested by the diagnosis, not tried yet:
 - **Alternating least squares** with regularisation and rounding, the method that found most
   known schemes, as a reference for what a non-gradient method does from the same starts.
 
+## Correction (27 October 2026): the learning-rate floor
+
+The plateau scheduler used for these runs followed torch's `ReduceLROnPlateau`, which skips a
+reduction smaller than 1e-8: halving from 1e-4 the learning rate stopped at 1.22·10⁻⁸, from 1e-3
+at 1.53·10⁻⁸, whatever `--lr-min` below that. Consequences:
+
+- the configurations "final lr 1e-10" (B-lr1e-4-min1e-10, B-lr1e-3-min1e-10) never went below
+  1.2–1.5·10⁻⁸ and are the same runs as A-lr1e-4 and A-lr1e-3 (identical trajectories); the
+  smallest final learning rate actually tried with the plateau schedule is ≈ 1.2·10⁻⁸ (and 1e-8
+  with factor 0.1, stage C, and with the cosine schedule);
+- with floor 1e-8 and factor 0.5 the stall rule, which waits for the floor, never fired: these
+  runs took the whole budget (most of the 193 runs of stages A–C that ended on the budget).
+
+The conclusions do not change (the minimum is chosen in the first 10⁴–10⁵ steps, where the
+learning rate is still ≥ 1e-5). The scheduler is fixed in `matmulnet/schedule.py`: every
+reduction is applied down to `--lr-min` (identical to torch above 2·10⁻⁸, hence for the
+paper's protocol).
+
 ## Reproduce
 
     python experiments/phase1.py starts --dir runs/round2-phase1 --scheme results/4x4-round-1/known_schemes/rational48.npz \

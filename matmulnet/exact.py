@@ -14,7 +14,8 @@ there are no training or validation sets: every step is a full-batch Adam step o
 loss. The run is deterministic once the starting point is fixed.
 
 The learning rate follows --schedule: plateau (the rule of torch's ReduceLROnPlateau on the loss,
-evaluated every --chunk steps; --patience is counted in steps), cosine (from --lr to --lr-min
+evaluated every --chunk steps, but reaching --lr-min however small: see schedule.Plateau;
+--patience is counted in steps), cosine (from --lr to --lr-min
 over --steps) or constant. The run stops after --steps steps, when rho falls below --stop-rho,
 or when the best loss has not improved by a relative 1e-3 for --stall steps while the learning
 rate cannot decrease any more (plateau: it is at --lr-min; the other schedules: always).
