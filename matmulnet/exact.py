@@ -35,6 +35,9 @@ the point rounded to the grid.
 Files written in --out: per_step.csv (step, lr, loss, rho, W every --log-every steps), best.npz
 and last.npz (format of matmulnet.train), summary.json, ckpt.npz (complete state: a run that
 is interrupted continues identically), polished.npz with --polish.
+
+--extend continues a run from its checkpoint with other --steps, --stall and --lr-min, also
+after it has stopped on the budget or on a stall (its polish is then done again at the end).
 """
 import argparse
 import json
@@ -233,7 +236,7 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                 stop_rho=1e-8, stall=100_000, polish=0, log_every=1000, ckpt_every=200_000,
                 quiet=False, wandb=None, wandb_group=None, wandb_tags=None, wandb_job_type=None,
                 quant=0.0, l1=0.0, grid=GRID, balance_terms=False, freeze_every=0,
-                freeze_delta=(0.05, 0.05), freeze_start=0.0, _interrupt_at=None):
+                freeze_delta=(0.05, 0.05), freeze_start=0.0, extend=False, _interrupt_at=None):
     if steps % chunk or log_every % chunk or ckpt_every % chunk or freeze_every % chunk:
         raise SystemExit("--steps, --log-every, --ckpt-every and --freeze-every must be "
                          "multiples of --chunk")
@@ -260,6 +263,8 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
         z = np.load(ckpt)
         meta = json.loads(str(z["meta"]))
         for key in cfg:
+            if extend and key in ("steps", "stall", "lr_min"):
+                continue
             if meta.get(key, old.get(key)) != cfg[key]:
                 raise SystemExit(f"{ckpt} was written with {key}={meta.get(key, old.get(key))}, "
                                  f"not {cfg[key]}")
@@ -272,6 +277,8 @@ def train_exact(n, rank, out, seed=0, init_from=None, steps=2_000_000, lr=1e-4, 
                         best=meta["pl_best"], bad=meta["pl_bad"])
         first, adam_step, elapsed = meta["chunk_done"] + 1, meta["adam_step"], meta["seconds"]
         last_gain, stop = meta["last_gain"], meta["stop"]
+        if extend and stop in ("budget", "stall"):
+            stop = None
     else:
         rng = np.random.default_rng(seed)
         if init_from:
@@ -443,6 +450,9 @@ def main():
     ap.add_argument("--stall", type=int, default=100_000, help="0: never stop on a stall")
     ap.add_argument("--polish", type=int, default=0, metavar="N",
                     help="end with at most N Levenberg-Marquardt iterations")
+    ap.add_argument("--extend", action="store_true",
+                    help="continue from the checkpoint with other --steps, --stall, --lr-min, "
+                         "also after a stop on the budget or a stall")
     ap.add_argument("--log-every", type=int, default=1000)
     ap.add_argument("--ckpt-every", type=int, default=200_000)
     ap.add_argument("--quiet", action="store_true")
@@ -470,7 +480,7 @@ def main():
                        a.lr_factor, a.patience, a.schedule, a.clip, a.chunk, a.stop_rho, a.stall,
                        a.polish, a.log_every, a.ckpt_every, a.quiet, a.wandb, a.wandb_group,
                        a.wandb_tags, a.wandb_job_type, a.quant, a.l1, a.grid, a.balance,
-                       a.freeze_every, a.freeze_delta, a.freeze_start)
+                       a.freeze_every, a.freeze_delta, a.freeze_start, a.extend)
     print(f"best rho {rho_of_loss(best['loss'], a.n):.6e} at step {best['step']}")
 
 

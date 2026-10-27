@@ -70,6 +70,23 @@ def test_strassen_from_noise(tmp_path):
     assert rho_of_loss(best["loss"], 2) < 1e-8
 
 
+def test_extend_is_exact(tmp_path):
+    """A run that stopped on its budget, extended, continues as a run with the larger budget."""
+    import json
+    kw = dict(seed=3, lr=1e-2, lr_min=1e-6, patience=200, chunk=100, log_every=500,
+              ckpt_every=1000, quiet=True, stall=0)
+    train_exact(2, 6, str(tmp_path / "a"), steps=6000, **kw)
+    train_exact(2, 6, str(tmp_path / "b"), steps=3000, **kw)
+    assert json.load(open(tmp_path / "b" / "summary.json"))["stop"] == "budget"
+    train_exact(2, 6, str(tmp_path / "b"), steps=6000, extend=True, **kw)
+    za, zb = np.load(tmp_path / "a" / "ckpt.npz"), np.load(tmp_path / "b" / "ckpt.npz")
+    assert all(np.array_equal(za[k], zb[k]) for k in ("p0", "p1", "p2", "m0", "v0", "b0"))
+    assert (tmp_path / "a" / "per_step.csv").read_text() == \
+        (tmp_path / "b" / "per_step.csv").read_text()
+    with pytest.raises(SystemExit):          # without --extend the checkpoint is protected
+        train_exact(2, 6, str(tmp_path / "b"), steps=9000, **kw)
+
+
 def _plateau_floor(lr, factor, min_lr, torch_rule):
     from matmulnet.schedule import Plateau
     sched = Plateau(lr=lr, factor=factor, patience=0, min_lr=min_lr)
