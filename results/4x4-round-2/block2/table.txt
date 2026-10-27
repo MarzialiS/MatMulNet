@@ -1,0 +1,90 @@
+r47             40 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.28 median 0.331  steps median 10,000,000 max 10,000,000
+  lr3e-4        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.28 median 0.306  steps median 10,000,000 max 10,000,000
+  lr1e-3        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.306 median 0.342  steps median 10,000,000 max 10,000,000
+  lr3e-3        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.28 median 0.331  steps median 10,000,000 max 10,000,000
+  lr1e-2        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.28 median 0.31  steps median 10,000,000 max 10,000,000
+r48             40 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.177 median 0.28  steps median 10,000,000 max 10,000,000
+  lr3e-4        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.217 median 0.306  steps median 10,000,000 max 10,000,000
+  lr1e-3        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.177 median 0.293  steps median 10,000,000 max 10,000,000
+  lr3e-3        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.217 median 0.28  steps median 10,000,000 max 10,000,000
+  lr1e-2        10 runs  solved  0 (training  0)  rho<1e-3 & W<1e4  0  rho min 0.217 median 0.265  steps median 10,000,000 max 10,000,000
+   r47 lr1e-2  seed1   budget  10,000,000 train 0.375 polish 0.375 W 7052 64rho2 9.00
+   r47 lr1e-2  seed10  budget  10,000,000 train 0.354 polish 0.354 W 1.03e+04 64rho2 8.00
+   r47 lr1e-2  seed2   budget  10,000,000 train 0.331 polish 0.307 W 6045 64rho2 7.01
+   r47 lr1e-2  seed3   budget  10,000,000 train 0.28 polish 0.28 W 2.681e+04 64rho2 5.01
+   r47 lr1e-2  seed4   budget  10,000,000 train 0.28 polish 0.28 W 3.109e+04 64rho2 5.03
+   r47 lr1e-2  seed5   budget  10,000,000 train 0.375 polish 0.314 W 6717 64rho2 9.00
+   r47 lr1e-2  seed6   budget  10,000,000 train 0.354 polish 0.354 W 9763 64rho2 8.01
+   r47 lr1e-2  seed7   budget  10,000,000 train 0.354 polish 0.354 W 9619 64rho2 8.01
+   r47 lr1e-2  seed8   budget  10,000,000 train 0.307 polish 0.306 W 1.505e+04 64rho2 6.02
+   r47 lr1e-2  seed9   budget  10,000,000 train 0.307 polish 0.306 W 1.719e+04 64rho2 6.02
+   r47 lr1e-3  seed1   budget  10,000,000 train 0.376 polish 0.375 W 1.132e+04 64rho2 9.03
+   r47 lr1e-3  seed10  budget  10,000,000 train 0.376 polish 0.375 W 1.475e+04 64rho2 9.03
+   r47 lr1e-3  seed2   budget  10,000,000 train 0.332 polish 0.331 W 1.723e+04 64rho2 7.04
+   r47 lr1e-3  seed3   budget  10,000,000 train 0.307 polish 0.306 W 1.544e+04 64rho2 6.04
+   r47 lr1e-3  seed4   budget  10,000,000 train 0.331 polish 0.331 W 1.461e+04 64rho2 7.03
+   r47 lr1e-3  seed5   budget  10,000,000 train 0.378 polish 0.376 W 1.976e+04 64rho2 9.13
+   r47 lr1e-3  seed6   budget  10,000,000 train 0.307 polish 0.306 W 1.487e+04 64rho2 6.03
+   r47 lr1e-3  seed7   budget  10,000,000 train 0.354 polish 0.354 W 1.073e+04 64rho2 8.02
+   r47 lr1e-3  seed8   budget  10,000,000 train 0.354 polish 0.354 W 1.532e+04 64rho2 8.04
+   r47 lr1e-3  seed9   budget  10,000,000 train 0.307 polish 0.306 W 4.253e+04 64rho2 6.04
+   r47 lr3e-3  seed1   budget  10,000,000 train 0.359 polish 0.355 W 3.142e+04 64rho2 8.23
+   r47 lr3e-3  seed10  budget  10,000,000 train 0.332 polish 0.331 W 1.188e+04 64rho2 7.04
+   r47 lr3e-3  seed2   budget  10,000,000 train 0.332 polish 0.331 W 3.829e+04 64rho2 7.05
+   r47 lr3e-3  seed3   budget  10,000,000 train 0.28 polish 0.28 W 1.425e+04 64rho2 5.03
+   r47 lr3e-3  seed4   budget  10,000,000 train 0.28 polish 0.28 W 1.021e+04 64rho2 5.02
+   r47 lr3e-3  seed5   budget  10,000,000 train 0.375 polish 0.354 W 7805 64rho2 9.02
+   r47 lr3e-3  seed6   budget  10,000,000 train 0.355 polish 0.354 W 1.681e+04 64rho2 8.07
+   r47 lr3e-3  seed7   budget  10,000,000 train 0.307 polish 0.306 W 3.587e+04 64rho2 6.02
+   r47 lr3e-3  seed8   budget  10,000,000 train 0.355 polish 0.354 W 1.566e+04 64rho2 8.04
+   r47 lr3e-3  seed9   budget  10,000,000 train 0.307 polish 0.28 W 8706 64rho2 6.02
+   r47 lr3e-4  seed1   budget  10,000,000 train 0.354 polish 0.331 W 1.905e+04 64rho2 8.03
+   r47 lr3e-4  seed10  budget  10,000,000 train 0.28 polish 0.28 W 1.835e+04 64rho2 5.02
+   r47 lr3e-4  seed2   budget  10,000,000 train 0.282 polish 0.28 W 2.731e+04 64rho2 5.10
+   r47 lr3e-4  seed3   budget  10,000,000 train 0.331 polish 0.306 W 9235 64rho2 7.01
+   r47 lr3e-4  seed4   budget  10,000,000 train 0.354 polish 0.354 W 1.084e+04 64rho2 8.03
+   r47 lr3e-4  seed5   budget  10,000,000 train 0.354 polish 0.354 W 1.322e+04 64rho2 8.02
+   r47 lr3e-4  seed6   budget  10,000,000 train 0.333 polish 0.331 W 2.601e+04 64rho2 7.10
+   r47 lr3e-4  seed7   budget  10,000,000 train 0.28 polish 0.28 W 1.822e+04 64rho2 5.03
+   r47 lr3e-4  seed8   budget  10,000,000 train 0.331 polish 0.306 W 8347 64rho2 7.02
+   r47 lr3e-4  seed9   budget  10,000,000 train 0.307 polish 0.28 W 1.766e+04 64rho2 6.05
+   r48 lr1e-2  seed1   budget  10,000,000 train 0.217 polish 0.217 W 2.13e+04 64rho2 3.01
+   r48 lr1e-2  seed10  budget  10,000,000 train 0.28 polish 0.28 W 1.433e+04 64rho2 5.01
+   r48 lr1e-2  seed2   budget  10,000,000 train 0.28 polish 0.28 W 1.071e+04 64rho2 5.02
+   r48 lr1e-2  seed3   budget  10,000,000 train 0.249 polish 0.217 W 1.04e+04 64rho2 3.97
+   r48 lr1e-2  seed4   budget  10,000,000 train 0.251 polish 0.25 W 2.124e+04 64rho2 4.03
+   r48 lr1e-2  seed5   budget  10,000,000 train 0.251 polish 0.25 W 1.533e+04 64rho2 4.02
+   r48 lr1e-2  seed6   budget  10,000,000 train 0.307 polish 0.306 W 1.145e+04 64rho2 6.01
+   r48 lr1e-2  seed7   budget  10,000,000 train 0.28 polish 0.28 W 2.358e+04 64rho2 5.01
+   r48 lr1e-2  seed8   budget  10,000,000 train 0.251 polish 0.25 W 2.235e+04 64rho2 4.03
+   r48 lr1e-2  seed9   budget  10,000,000 train 0.354 polish 0.354 W 9208 64rho2 8.01
+   r48 lr1e-3  seed1   budget  10,000,000 train 0.354 polish 0.354 W 1.128e+04 64rho2 8.02
+   r48 lr1e-3  seed10  budget  10,000,000 train 0.28 polish 0.28 W 1.237e+04 64rho2 5.03
+   r48 lr1e-3  seed2   budget  10,000,000 train 0.307 polish 0.28 W 1.235e+04 64rho2 6.02
+   r48 lr1e-3  seed3   budget  10,000,000 train 0.179 polish 0.177 W 3.055e+04 64rho2 2.06
+   r48 lr1e-3  seed4   budget  10,000,000 train 0.218 polish 0.181 W 1.567e+04 64rho2 3.03
+   r48 lr1e-3  seed5   budget  10,000,000 train 0.354 polish 0.354 W 1.371e+04 64rho2 8.03
+   r48 lr1e-3  seed6   budget  10,000,000 train 0.28 polish 0.217 W 1.264e+04 64rho2 5.03
+   r48 lr1e-3  seed7   budget  10,000,000 train 0.331 polish 0.306 W 1.095e+04 64rho2 7.03
+   r48 lr1e-3  seed8   budget  10,000,000 train 0.332 polish 0.331 W 1.479e+04 64rho2 7.05
+   r48 lr1e-3  seed9   budget  10,000,000 train 0.396 polish 0.395 W 1.492e+04 64rho2 10.04
+   r48 lr3e-3  seed1   budget  10,000,000 train 0.332 polish 0.331 W 2.175e+04 64rho2 7.04
+   r48 lr3e-3  seed10  budget  10,000,000 train 0.307 polish 0.306 W 1.082e+04 64rho2 6.02
+   r48 lr3e-3  seed2   budget  10,000,000 train 0.28 polish 0.28 W 3.475e+04 64rho2 5.03
+   r48 lr3e-3  seed3   budget  10,000,000 train 0.281 polish 0.28 W 2.486e+04 64rho2 5.05
+   r48 lr3e-3  seed4   budget  10,000,000 train 0.28 polish 0.28 W 1.879e+04 64rho2 5.01
+   r48 lr3e-3  seed5   budget  10,000,000 train 0.255 polish 0.252 W 2.736e+04 64rho2 4.15
+   r48 lr3e-3  seed6   budget  10,000,000 train 0.354 polish 0.331 W 8094 64rho2 8.02
+   r48 lr3e-3  seed7   budget  10,000,000 train 0.218 polish 0.217 W 3.089e+04 64rho2 3.05
+   r48 lr3e-3  seed8   budget  10,000,000 train 0.281 polish 0.252 W 1.222e+04 64rho2 5.04
+   r48 lr3e-3  seed9   budget  10,000,000 train 0.376 polish 0.307 W 1.514e+04 64rho2 9.04
+   r48 lr3e-4  seed1   budget  10,000,000 train 0.385 polish 0.379 W 6.002e+04 64rho2 9.47
+   r48 lr3e-4  seed10  budget  10,000,000 train 0.331 polish 0.331 W 1.817e+04 64rho2 7.03
+   r48 lr3e-4  seed2   budget  10,000,000 train 0.28 polish 0.251 W 1.2e+04 64rho2 5.01
+   r48 lr3e-4  seed3   budget  10,000,000 train 0.285 polish 0.281 W 3.03e+04 64rho2 5.21
+   r48 lr3e-4  seed4   budget  10,000,000 train 0.376 polish 0.375 W 1.471e+04 64rho2 9.05
+   r48 lr3e-4  seed5   budget  10,000,000 train 0.306 polish 0.306 W 1.033e+04 64rho2 6.01
+   r48 lr3e-4  seed6   budget  10,000,000 train 0.307 polish 0.306 W 1.547e+04 64rho2 6.04
+   r48 lr3e-4  seed7   budget  10,000,000 train 0.219 polish 0.217 W 4.772e+04 64rho2 3.06
+   r48 lr3e-4  seed8   budget  10,000,000 train 0.281 polish 0.28 W 3.05e+04 64rho2 5.04
+   r48 lr3e-4  seed9   budget  10,000,000 train 0.331 polish 0.331 W 1.274e+04 64rho2 7.03
