@@ -46,7 +46,7 @@ from sweep import cpu_pool  # noqa: E402
 
 from matmulnet import metrics  # noqa: E402
 
-SIGMAS = [0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 1.0, 1.5]
+SIGMAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.5]
 TS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 SEEDS = [1, 2, 3, 4, 5]
 RHO_OK, W_MAX = 1e-10, 1e4         # W of the rational 48-term scheme: 210.5
@@ -148,6 +148,8 @@ def cmd_lm(a):
         cmd = [sys.executable, os.path.abspath(__file__), "lm-one", name, "--dir", a.dir]
         if a.wandb:
             cmd += ["--wandb", a.wandb]
+            if a.wandb_tags:
+                cmd += ["--wandb-tags", *a.wandb_tags]
         jobs.append((name, cmd, os.path.join(out, "stdout.log")))
     pinned_pool(a, jobs)
 
@@ -175,8 +177,8 @@ def cmd_lm_one(a):
         entity, _, project = a.wandb.rpartition("/")
         run = wandb.init(entity=entity or None, project=project, name=f"lm_{a.name}",
                          group=f"phase1_lm_{level(a.name)}", job_type="phase1-lm-only",
-                         tags=["round-2", "phase-1"], config=dict(start=a.name, level=level(a.name),
-                                                                    max_iter=LM_ITER),
+                         tags=a.wandb_tags or ["round-2", "phase-1"],
+                         config=dict(start=a.name, level=level(a.name), max_iter=LM_ITER),
                          settings=wandb.Settings(console="off"))
         run.summary.update(res)
         run.finish()
@@ -363,6 +365,7 @@ def main():
     ap.add_argument("--cpus", default="p")
     ap.add_argument("--jobs", type=int)
     ap.add_argument("--wandb", metavar="ENTITY/PROJECT")
+    ap.add_argument("--wandb-tags", nargs="+", help="lm, lm-one: W&B tags (default round-2 phase-1)")
     ap.add_argument("--source", help="reduce: training tag whose last points have more terms")
     ap.add_argument("--target", type=int, default=48, help="reduce: final number of terms")
     ap.add_argument("--stage-epochs", type=int, default=10_000, help="reduce: epochs per term")
