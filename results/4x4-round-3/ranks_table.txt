@@ -1,0 +1,12 @@
+r46           400 runs  solved   0 (training   0)  rho min 0.217 median 0.331  W median 4,928  steps median 639,000  stop {'stall': 400}
+  lr 3e-4     100 runs  solved   0 (training   0)  rho min 0.25 median 0.332  W median 5,422  steps median 663,800  stop {'stall': 100}
+  lr 1e-3     100 runs  solved   0 (training   0)  rho min 0.223 median 0.331  W median 5,368  steps median 684,400  stop {'stall': 100}
+  lr 3e-3     100 runs  solved   0 (training   0)  rho min 0.251 median 0.331  W median 5,215  steps median 698,900  stop {'stall': 100}
+  lr 1e-2     100 runs  solved   0 (training   0)  rho min 0.217 median 0.307  W median 3,227  steps median 551,150  stop {'stall': 100}
+  k: [(3, 1), (4, 5), (5, 37), (6, 85), (7, 88), (8, 78), (9, 67), (10, 21), (11, 7), (12, 5), (13, 2)], near an integer 396/400
+r49           400 runs  solved   0 (training   0)  rho min 0.125 median 0.28  W median 5,370  steps median 799,800  stop {'stall': 400}
+  lr 3e-4     100 runs  solved   0 (training   0)  rho min 0.126 median 0.28  W median 5,906  steps median 850,000  stop {'stall': 100}
+  lr 1e-3     100 runs  solved   0 (training   0)  rho min 0.177 median 0.28  W median 6,349  steps median 933,250  stop {'stall': 100}
+  lr 3e-3     100 runs  solved   0 (training   0)  rho min 0.125 median 0.28  W median 5,610  steps median 856,350  stop {'stall': 100}
+  lr 1e-2     100 runs  solved   0 (training   0)  rho min 0.125 median 0.25  W median 3,164  steps median 615,150  stop {'stall': 100}
+  k: [(1, 3), (2, 17), (3, 46), (4, 81), (5, 91), (6, 68), (7, 42), (8, 25), (9, 10), (10, 1), (11, 1)], near an integer 385/400
