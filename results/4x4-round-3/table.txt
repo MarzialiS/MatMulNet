@@ -1,0 +1,7 @@
+level                           lm                lr1e-2                lr3e-3
+noise_s0.4                 100/100   100/100 (100 train)   100/100 (100 train)
+noise_s0.5                 100/100     98/100 (98 train)     97/100 (97 train)
+noise_s0.6                  68/100     27/100 (27 train)     23/100 (23 train)
+noise_s0.7                   0/100       0/100 (0 train)       0/100 (0 train)
+noise_s0.8                   0/100       0/100 (0 train)       0/100 (0 train)
+noise_s1                     0/100       0/100 (0 train)       0/100 (0 train)
