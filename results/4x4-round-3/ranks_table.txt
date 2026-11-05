@@ -4,6 +4,18 @@ r46           400 runs  solved   0 (training   0)  rho min 0.217 median 0.331  W
   lr 3e-3     100 runs  solved   0 (training   0)  rho min 0.251 median 0.331  W median 5,215  steps median 698,900  stop {'stall': 100}
   lr 1e-2     100 runs  solved   0 (training   0)  rho min 0.217 median 0.307  W median 3,227  steps median 551,150  stop {'stall': 100}
   k: [(3, 1), (4, 5), (5, 37), (6, 85), (7, 88), (8, 78), (9, 67), (10, 21), (11, 7), (12, 5), (13, 2)], near an integer 396/400
+r47           400 runs  solved   0 (training   0)  rho min 0.217 median 0.306  W median 4,746  steps median 653,900  stop {'stall': 400}
+  lr 3e-4     100 runs  solved   0 (training   0)  rho min 0.218 median 0.331  W median 5,743  steps median 724,750  stop {'stall': 100}
+  lr 1e-3     100 runs  solved   0 (training   0)  rho min 0.217 median 0.307  W median 5,340  steps median 714,800  stop {'stall': 100}
+  lr 3e-3     100 runs  solved   0 (training   0)  rho min 0.25 median 0.307  W median 4,887  steps median 721,050  stop {'stall': 100}
+  lr 1e-2     100 runs  solved   0 (training   0)  rho min 0.217 median 0.306  W median 3,228  steps median 547,150  stop {'stall': 100}
+  k: [(3, 4), (4, 18), (5, 83), (6, 106), (7, 85), (8, 56), (9, 29), (10, 13), (11, 4), (12, 1)], near an integer 399/400
+r48           400 runs  solved   0 (training   0)  rho min 0.177 median 0.283  W median 5,129  steps median 765,500  stop {'stall': 400}
+  lr 3e-4     100 runs  solved   0 (training   0)  rho min 0.18 median 0.306  W median 6,172  steps median 891,250  stop {'stall': 100}
+  lr 1e-3     100 runs  solved   0 (training   0)  rho min 0.177 median 0.293  W median 5,704  steps median 819,550  stop {'stall': 100}
+  lr 3e-3     100 runs  solved   0 (training   0)  rho min 0.177 median 0.306  W median 5,330  steps median 775,900  stop {'stall': 100}
+  lr 1e-2     100 runs  solved   0 (training   0)  rho min 0.177 median 0.28  W median 3,399  steps median 593,800  stop {'stall': 100}
+  k: [(2, 7), (3, 23), (4, 67), (5, 82), (6, 97), (7, 60), (8, 34), (9, 18), (10, 5), (11, 1)], near an integer 394/400
 r49           400 runs  solved   0 (training   0)  rho min 0.125 median 0.28  W median 5,370  steps median 799,800  stop {'stall': 400}
   lr 3e-4     100 runs  solved   0 (training   0)  rho min 0.126 median 0.28  W median 5,906  steps median 850,000  stop {'stall': 100}
   lr 1e-3     100 runs  solved   0 (training   0)  rho min 0.177 median 0.28  W median 6,349  steps median 933,250  stop {'stall': 100}
