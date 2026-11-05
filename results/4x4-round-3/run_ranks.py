@@ -2,9 +2,11 @@
 and 49 terms. Exact loss, plateau x0.5 / patience 10^4 steps down to 1e-8, initial learning rate
 3e-4, 1e-3, 3e-3, 1e-2 (the configurations that solved at least one start at sigma = 0.6 by
 training alone, round 2, block 1), at most 10^7 steps, stop at rho < 1e-8 or on a stall, then at
-most 200 LM iterations. Seeds 1-100 for every rank and learning rate, on the 8 P-cores.
+most 200 LM iterations. Seeds 1-100 (or 1-N with --seeds N) for every rank and learning rate, on
+the 8 P-cores.
 
     python results/4x4-round-3/run_ranks.py 46 49
+    python results/4x4-round-3/run_ranks.py 60 64 --seeds 10
 
 Run from the repository root; launched again, it skips what is done and resumes what was
 interrupted."""
@@ -27,9 +29,9 @@ class A:
     jobs = None
 
 
-def rank_jobs(ranks):
+def rank_jobs(ranks, seeds=SEEDS):
     jobs = []
-    for seed in SEEDS:
+    for seed in seeds:
         for rank in ranks:
             for lr in LRS:
                 out = os.path.join(D, f"r{rank}", f"lr{lr}", f"seed{seed}")
@@ -49,5 +51,11 @@ def rank_jobs(ranks):
 
 
 if __name__ == "__main__":
-    phase1.pinned_pool(A, rank_jobs([int(r) for r in sys.argv[1:]]))
+    args = sys.argv[1:]
+    seeds = SEEDS
+    if "--seeds" in args:
+        i = args.index("--seeds")
+        seeds = range(1, int(args[i + 1]) + 1)
+        del args[i:i + 2]
+    phase1.pinned_pool(A, rank_jobs([int(r) for r in args], seeds))
     print("RANKS DONE", flush=True)
