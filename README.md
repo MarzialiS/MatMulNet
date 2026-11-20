@@ -14,15 +14,19 @@ random triples `(A, B, AB)` searches for a length-`r` decomposition of the matri
 tensor `M_n`. In the border-rank variant the three factors are Laurent polynomials in a
 parameter `ε` that decays during training.
 
-The repository contains
+The repository holds everything needed to reproduce the experiments of the paper on `2 x 2` and
+`3 x 3` matrices: the training sweeps, the statistical analysis and the figures, the constrained
+refinement and the pseudo-arclength continuation. The same tools apply to `4 x 4` matrices; for
+these it also provides the known decompositions of `M_4`, training on the exact loss and the
+recovery of a known decomposition from perturbed starting points.
 
 | folder | content |
 |---|---|
-| `matmulnet/` | model, data, schedules and the training loop |
-| `experiments/` | launcher of the training sweeps; known schemes for `4 x 4` matrices |
+| `matmulnet/` | model, data, schedules, the training loop, and training on the exact loss |
+| `experiments/` | launcher of the training sweeps; known schemes for `4 x 4` matrices; recovery of a known scheme from perturbed starts |
 | `refinement/` | constrained refinement of a trained decomposition (projected Levenberg–Marquardt) |
 | `continuation/` | projected pseudo-arclength continuation of the length-22 candidate, with its input and output data |
-| `analysis/` | tables, statistical tests and figures |
+| `analysis/` | tables, statistical tests, figures, and the limit check of an `ε`-parametrised decomposition |
 | `tests/` | unit tests |
 
 ## Installation
@@ -31,7 +35,8 @@ Python 3.10 or later.
 
     pip install -r requirements.txt
 
-Commands below are run from the root of the repository.
+PyTorch is needed only for `--backend torch` and the tests, Weights & Biases only for
+`--wandb`. Commands below are run from the root of the repository.
 
 ## Training
 
@@ -66,38 +71,48 @@ generator, data — so a run that is interrupted and launched again with the sam
 continues exactly as if it had never stopped.
 
 `--init-from FILE` starts from the factors stored in `FILE` instead of a random point, and
-`--wandb ENTITY/PROJECT` also sends the logged quantities to Weights & Biases (`pip install
-wandb`).
+`--wandb ENTITY/PROJECT` also sends the logged quantities to Weights & Biases.
+
+Further options, all off by default (see `python -m matmulnet.train --help`): `--lr`,
+`--lr-min`, `--lr-factor`, `--patience`, `--schedule plateau|cosine|constant` and `--batch`
+change the optimiser's settings; `--weight-decay` switches to AdamW; a `--init-from` file with
+fewer terms than `--rank` is completed with small random terms, `--group-lasso` penalises the
+norms of the terms and `--prune-to` keeps the largest ones; `--polish N` ends a rank run with at
+most `N` Levenberg–Marquardt iterations on the full-tensor residual.
 
 ### Two implementations of the training step
 
 `matmulnet/reference_torch.py` is the PyTorch implementation: an `nn.Module`, autograd,
 `clip_grad_norm_`, `torch.optim.Adam`. `matmulnet/kernels.py` computes the same epoch in a
 single compiled function (numba), with the gradient written out by hand; it is the default
-because it is more than an order of magnitude faster for models this small: about 1 ms per
-epoch for `2 x 2`, 4–6 ms for `3 x 3` and 9–14 ms for `4 x 4` on one core of a laptop CPU,
-i.e. one to four hours for a `10^6`-epoch run. Select the implementation with `--backend numba|torch`. The tests check
-that the two produce the same trajectory up to rounding.
+because it is more than an order of magnitude faster for models this small: about 0.5 ms per
+epoch for `2 x 2`, 3–4.5 ms for `3 x 3` and 9–13 ms for `4 x 4` on one performance core of an
+Intel Core i9-13900K (about twice as long on an efficiency core), i.e. up to four hours for a
+`10^6`-epoch run. The kernel is compiled for the sizes of the run when the run starts (about two
+seconds). Select the implementation with `--backend numba|torch`. The tests check that the two
+produce the same trajectory up to rounding.
 
-## The sweeps
+## Reproducing the paper
+
+### The sweeps
 
     python experiments/sweep.py calibration    # 2x2, r = 6, 7                           (14 runs)
     python experiments/sweep.py rank           # 3x3, r = 16, ..., 24                    (63 runs)
     python experiments/sweep.py border         # 3x3, r = 16, ..., 21, exponent ranges
                                                # [-2,4], [-3,5], [-4,6]                  (126 runs)
-    python experiments/sweep.py rank4          # 4x4, r = 45, ..., 49                    (35 runs)
-    python experiments/sweep.py border4        # 4x4, r = 44, ..., 47, exponent range
-                                               # [-1,2]                                  (28 runs)
 
 Each configuration is run seven times, with seeds 1 to 7; `--ranks` and `--seeds` select a
-subset or other values. Runs are independent single-threaded
-processes; `--jobs` sets how many run at once. Finished runs are skipped and interrupted ones
-resume, so the same command can be issued again at any time. `border --init scaled` runs the
-border-rank sweep with the scaled initialisation; its runs are stored next to the others (with
-`_scaled` in the name), and `analysis/stats.py border` and `analysis/figures.py border` take the
-same `--init` option to select them.
+subset or other values. Runs are independent single-threaded processes, each pinned to its own
+physical core: `--cpus` chooses the cores (`all`, the default, one per physical core; `p` or
+`e`, only the performance or the efficiency cores of a hybrid Intel CPU; or a list such as
+`0,2,4-7`), performance cores first, and `--jobs` runs fewer at once (for instance on a shared
+machine). Finished runs are skipped and interrupted ones resume, so the same command can be
+issued again at any time. `border --init scaled` runs the border-rank sweep with the scaled
+initialisation; its runs are stored next to the others (with `_scaled` in the name), and
+`analysis/stats.py border` and `analysis/figures.py border` take the same `--init` option to
+select them.
 
-## Analysis
+### Analysis
 
     python analysis/collect.py                 # runs/*/summary.json  ->  results.csv
     python analysis/stats.py calibration       # 2x2: summary and successes below 1e-12
@@ -110,32 +125,7 @@ same `--init` option to select them.
     python analysis/figures.py rank            # figures/rank_strip_{linear,log}
     python analysis/figures.py border          # figures/brank_strip
 
-## Limit of an ε-parametrised decomposition
-
-    python analysis/laurent.py runs/border_n4_r46_d-1_2_seed1/best.npz
-
-With the coefficients held fixed, the tensor represented by the border-rank model is a Laurent
-polynomial `T(ε) = Σ_d ε^d T_d`, and the family converges to `M_n` as `ε → 0` exactly when
-`T_d = 0` for all `d < 0` and `T_0 = M_n`. The script reports the norm of every `T_d`, the
-distance of `T_0` from `M_n`, and `ρ`, `W` and the cancellation level of the factors evaluated
-on a decreasing sequence of values of `ε`.
-
-## Known schemes for 4 x 4 matrices
-
-    python experiments/known_schemes.py strassen49 --out schemes/strassen49.npz
-    python experiments/known_schemes.py rational48 --source 4x4x4_LRP.mpl --out schemes/rational48.npz
-    python experiments/known_schemes.py smirnov46  --source smirnov.txt --out schemes/smirnov46.npz
-    python experiments/known_schemes.py perturb schemes/rational48.npz --sigma 1e-2 --out schemes/rational48_s1e-2.npz
-
-write, in the format of `best.npz`, Strassen's scheme applied to itself (49 terms), the
-rational 48-term scheme of Dumas, Pernet and Sedoglavic (arXiv:2506.13242; `--source` is the
-file of the catalogue <https://fmm.univ-lille.fr/4x4x4.html>), the approximate scheme of length
-46 of Smirnov (arXiv:1412.1687; `--source` is the output of `pdftotext -layout` on the paper),
-whose coefficients are Laurent polynomials in `ε` with exponents `-1, …, 2`, and a noisy copy
-of a stored scheme. Each scheme is checked against `M_4` when it is written. The files can be
-passed to `matmulnet.train --init-from`, `refinement.refine --init` and `analysis/laurent.py`.
-
-## Constrained refinement
+### Constrained refinement
 
     python -m refinement.refine --init runs/rank_n3_r22_seed<i>/best.npz --out refinement_r22
     python -m refinement.refine --init runs/rank_n3_r23_seed<j>/best.npz --out refinement_r23
@@ -152,10 +142,11 @@ records `ρ` against the gauge-invariant weight `W = Σ_s ||h_s|| ||k_s|| ||f_s|
 `frontier.csv`, saves the factors of every level, and stops when `ρ` falls below the
 double-precision cancellation level of the current solution. `--max-seconds` bounds the time
 spent on each level and `--threads` sets the threads of the linear algebra (useful from
-`4 x 4` on, where an iteration solves a system with a few thousand unknowns). The method is local: the values
-are those reached along the warm-started branch, not global minima over the boxes.
+`4 x 4` on, where an iteration solves a system with a few thousand unknowns: there 4 threads
+are about three times as fast as one, and more threads gain little). The method is local: the
+values are those reached along the warm-started branch, not global minima over the boxes.
 
-## Pseudo-arclength continuation
+### Pseudo-arclength continuation
 
     cd continuation
     python continuation.py --self-test
@@ -164,13 +155,87 @@ are those reached along the warm-started branch, not global minima over the boxe
 
 `rank22_input.csv` holds the coefficients of the length-22 candidate from which the
 continuation starts. `continuation/data/` is the output of the same command with `--out data`,
-the run described in the paper: the
-projection `P`, the slice matrices and the initial singular values (`system.npz`), the
-diagnostics of all accepted steps (`trace.csv`), the factors at the smallest recorded `t`, at
-the smallest full-tensor residual and at the last accepted point (`best_t.npz`, `best_rho.npz`,
-`last.npz`), the options and software versions (`metadata.json`, `summary.json`) and the
-extended-precision checks of the saved points (`verification.json`). The script refuses to
-overwrite an existing output folder.
+the run described in the paper: the projection `P`, the slice matrices and the initial singular
+values (`system.npz`), the diagnostics of all accepted steps (`trace.csv`), the factors at the
+smallest recorded `t`, at the smallest full-tensor residual and at the last accepted point
+(`best_t.npz`, `best_rho.npz`, `last.npz`), the options and software versions
+(`metadata.json`, `summary.json`) and the extended-precision checks of the saved points
+(`verification.json`). The script refuses to overwrite an existing output folder.
+
+## 4 x 4 matrices
+
+### The sweeps
+
+    python experiments/sweep.py rank4          # 4x4, r = 45, ..., 49                    (35 runs)
+    python experiments/sweep.py border4        # 4x4, r = 44, ..., 47, exponent range
+                                               # [-1,2]                                  (28 runs)
+
+with the same protocol and the same options as the sweeps above.
+
+### Known schemes
+
+    python experiments/known_schemes.py strassen49 --out schemes/strassen49.npz
+    python experiments/known_schemes.py rational48 --source 4x4x4_LRP.mpl --out schemes/rational48.npz
+    python experiments/known_schemes.py smirnov46  --source smirnov.txt --out schemes/smirnov46.npz
+    python experiments/known_schemes.py perturb schemes/rational48.npz --sigma 1e-2 --out schemes/rational48_s1e-2.npz
+
+write, in the format of `best.npz`, Strassen's scheme applied to itself (49 terms), the
+rational 48-term scheme of Dumas, Pernet and Sedoglavic (arXiv:2506.13242; `--source` is the
+file of the catalogue <https://fmm.univ-lille.fr/4x4x4.html>), the approximate scheme of length
+46 of Smirnov (arXiv:1412.1687; `--source` is the output of `pdftotext -layout` on the paper),
+whose coefficients are Laurent polynomials in `ε` with exponents `-1, …, 2`, and a noisy copy
+of a stored scheme. Each scheme is checked against `M_4` when it is written. The files can be
+passed to `matmulnet.train --init-from`, `matmulnet.exact --init-from`, `refinement.refine
+--init` and `analysis/laurent.py`.
+
+### Limit of an ε-parametrised decomposition
+
+    python analysis/laurent.py runs/border_n4_r46_d-1_2_seed1/best.npz
+
+With the coefficients held fixed, the tensor represented by the border-rank model is a Laurent
+polynomial `T(ε) = Σ_d ε^d T_d`, and the family converges to `M_n` as `ε → 0` exactly when
+`T_d = 0` for all `d < 0` and `T_0 = M_n`. The script reports the norm of every `T_d`, the
+distance of `T_0` from `M_n`, and `ρ`, `W` and the cancellation level of the factors evaluated
+on a decreasing sequence of values of `ε`. It accepts the output of a border-rank run of any
+size, and the known schemes above.
+
+### Training on the exact loss
+
+    python -m matmulnet.exact --n 4 --rank 48 --init-from start.npz --out runs/x --lr 1e-3 --polish 200
+
+replaces the sampled triples by their expectation, `||T − M_n||_F^2 / (9 n^2)` (the per-entry
+squared error averaged over `A, B` with entries uniform in `[-1, 1]`): every step is a
+full-batch Adam step on the tensor of the factors (about 116 µs for `4 x 4`, `r = 48`, on one
+performance core), and there are no training or validation sets. `--schedule`, `--lr`,
+`--lr-min`, `--lr-factor` and `--patience` (in steps) as in `matmulnet.train`; the run stops at
+`--steps`, when `ρ < --stop-rho`, or on a stall, and `--extend` continues a finished run with a
+larger budget. `--quant`, `--l1`, `--balance` and `--freeze-*` push the coefficients towards a
+grid of discrete values (see `python -m matmulnet.exact --help`).
+
+### Recovery of a known scheme from perturbed starts
+
+    python experiments/recovery.py starts --scheme schemes/rational48.npz
+    python experiments/recovery.py lm
+    python experiments/recovery.py train --tag protocol --max-epochs 50000
+    python experiments/recovery.py exact --tag lr1e-3 -- --lr 1e-3
+    python experiments/recovery.py table
+
+`starts` writes the starting points, for seeds 1 to 5: the 48-term scheme plus Gaussian noise of
+standard deviation `σ` times the r.m.s. of its non-zero coefficients (`σ` from 0.1 to 1.5), and
+the interpolations `(1 − t)` times the scheme plus `t` times a random point drawn as a training
+run draws its initial point (`t` from 0.1 to 0.9). `lm` is the control: unconstrained
+Levenberg–Marquardt from each starting point alone, with a budget well above that of the polish
+that ends a training run. `train` and `exact` run `matmulnet.train` and `matmulnet.exact` from
+every start, ending with 200 Levenberg–Marquardt iterations (arguments after `--` are passed on
+to the trainer). `reduce` starts from the last points of a configuration with more terms
+(`--source`) and, one term at a time, drops the term whose removal increases `ρ` the least and
+trains for `--stage-epochs` epochs, down to `--target` terms. A start is solved when the end
+point has `ρ < 1e-10` with `W < 10^4`, so that a degeneration with `ρ` falling while `W` grows
+does not count. `table` prints, per starting level, the fraction of solved starts for the
+control and for every training configuration, and whether the solution is the scheme itself
+(the same rank-one terms up to order and rescaling) or another decomposition. Jobs are pinned
+to cores as in the sweeps (`--cpus`, by default the performance cores, and `--jobs`), finished
+jobs are skipped, and the outputs go to `runs/recovery/` (`--dir`).
 
 ## Tests
 

@@ -19,6 +19,21 @@ state; an interrupted run restarts from it and continues identically).
 --init-from FILE starts from the factors stored in FILE (a best.npz, or a known scheme written
 by experiments/known_schemes.py) instead of a random point. --wandb ENTITY/PROJECT also sends
 the logged quantities to Weights & Biases.
+
+Departures from the protocol, all off by default: --lr, --lr-min, --lr-factor and --patience
+change the plateau schedule; --schedule cosine decays the learning rate from --lr to --lr-min
+over the run, --schedule constant keeps it at --lr; --batch changes the size of the mini-batches;
+--weight-decay WD uses AdamW, multiplying the parameters by 1 - lr * WD at every update.
+
+Over-parametrisation and pruning: a --init-from file with fewer terms than --rank is completed
+with new terms whose coefficients are drawn from N(0, --extra-scale^2); --group-lasso LAM adds,
+after every epoch, the proximal step of the penalty lam * sum_s ||theta_s|| (theta_s: all the
+coefficients of term s), with lam growing linearly from 0 to LAM over the run, which drives the
+terms that are not needed to zero; --prune-to R makes the polish start from the R terms of
+largest weight ||h_s|| ||k_s|| ||f_s|| of the best parameters.
+--polish N, for the rank model, ends the run with at most N iterations of unconstrained
+Levenberg-Marquardt on the full-tensor residual from the best parameters (refinement.refine),
+and records the outcome in summary.json (polish_rho, polish_weight, ...) and in polished.npz.
 """
 import argparse
 import json
@@ -30,15 +45,16 @@ import numpy as np
 
 from . import metrics
 from .data import draw_sets
-from .schedule import EPS_START, Plateau, epsilon_at
+from .schedule import EPS_START, LR_FACTOR, LR_MIN, LR_PATIENCE, LR_START, Plateau, cosine_lr, \
+    epsilon_at
 
 MAX_EPOCHS, BATCH, CLIP, ALPHA = 1_000_000, 32, 10.0, 1.0
 
 
 class NumbaBackend:
-    def __init__(self, params, degrees, clip):
+    def __init__(self, params, degrees, clip, weight_decay=0.0):
         from . import kernels
-        self.k, self.clip = kernels, clip
+        self.k, self.clip, self.wd = kernels, clip, weight_decay
         self.deg = np.asarray(degrees, dtype=np.float64)
         self.set_state(params, None, None, 0.0)
 
@@ -54,18 +70,19 @@ class NumbaBackend:
 
     def train_epoch(self, eps, lr, data, perm, batch):
         self.step, loss = self.k.train_epoch(*self.P, *self.M, *self.V, self.step,
-                                             eps ** self.deg, lr, self.clip, *data, perm, batch)
+                                             eps ** self.deg, lr, self.clip, *data, perm, batch,
+                                             1.0 - lr * self.wd)
         return loss
 
     def validate(self, eps, data):
         return float(self.k.mse(*self.P, eps ** self.deg, *data))
 
 
-def make_backend(name, params, degrees, clip=CLIP):
+def make_backend(name, params, degrees, clip=CLIP, weight_decay=0.0):
     if name == "torch":
         from .reference_torch import TorchBackend
-        return TorchBackend(params, degrees, clip)
-    return NumbaBackend(params, degrees, clip)
+        return TorchBackend(params, degrees, clip, weight_decay)
+    return NumbaBackend(params, degrees, clip, weight_decay)
 
 
 def init_params(rng, n, r, degrees, init="normal", alpha=ALPHA, eps_start=EPS_START):
@@ -119,9 +136,10 @@ def _save_results(out, best, last, cfg):
     return summary
 
 
-def _load_start(path, n, rank, deg):
+def _load_start(path, n, rank, deg, rng=None, extra_scale=0.0):
     """Coefficient tensors from a file holding either H_coeff, K_coeff, F_coeff and degrees
-    (possibly a narrower exponent range than `deg`) or plain factors H, K, F."""
+    (possibly a narrower exponent range than `deg`) or plain factors H, K, F. A file with fewer
+    terms than `rank` is completed with terms drawn from N(0, extra_scale^2)."""
     z = np.load(path)
     m = n * n
     if "H_coeff" in z.files:
@@ -132,18 +150,67 @@ def _load_start(path, n, rank, deg):
         coeff = [np.asarray(z[k], dtype=np.float64)[..., None] for k in ("H", "K", "F")]
     if not set(src) <= set(deg):
         raise SystemExit(f"{path} has exponents {src}, the model has {deg}")
+    r0 = coeff[0].shape[1]
+    if r0 > rank or coeff[0].shape[0] != m:
+        raise SystemExit(f"{path}: {r0} terms of size {coeff[0].shape[0]}, the model has {rank} "
+                         f"of size {m}")
     params = []
-    for c, shape in zip(coeff, ((m, rank), (m, rank), (rank, m))):
-        if c.shape[:2] != shape:
-            raise SystemExit(f"{path}: factor of shape {c.shape[:2]}, expected {shape}")
+    for j, (c, shape) in enumerate(zip(coeff, ((m, rank), (m, rank), (rank, m)))):
         p = np.zeros(shape + (len(deg),))
         for i, d in enumerate(src):
-            p[..., deg.index(d)] = c[..., i]
+            if j < 2:
+                p[:, :r0, deg.index(d)] = c[..., i]
+            else:
+                p[:r0, :, deg.index(d)] = c[..., i]
         params.append(p)
+    if r0 < rank:
+        for j, p in enumerate(params):
+            new = extra_scale * rng.standard_normal((m, rank - r0, len(deg)) if j < 2 else
+                                                    (rank - r0, m, len(deg)))
+            if j < 2:
+                p[:, r0:, :] = new
+            else:
+                p[r0:, :, :] = new
     return params
 
 
-def _wandb_run(target, out, cfg, group, tags):
+def _group_shrink(P, amount):
+    """Proximal step of amount * sum_s ||theta_s||: every term is shrunk towards zero by
+    `amount` in norm, and set to zero if it is smaller."""
+    H, K, F = P
+    norms = np.sqrt((H ** 2).sum(axis=(0, 2)) + (K ** 2).sum(axis=(0, 2)) + (F ** 2).sum(axis=(1, 2)))
+    f = np.maximum(0.0, 1.0 - amount / np.maximum(norms, 1e-300))
+    return [H * f[None, :, None], K * f[None, :, None], F * f[:, None, None]]
+
+
+def _polish(out, best, cfg, max_iter):
+    """Unconstrained Levenberg-Marquardt from the best parameters (rank model), after keeping
+    the cfg["prune_to"] terms of largest weight if that is set."""
+    from refinement.refine import Problem, projected_lm
+    n = cfg["n"]
+    H, K, F = (p[..., 0] for p in best["P"])
+    pruned = {}
+    if cfg["prune_to"] and cfg["prune_to"] < H.shape[1]:
+        w = np.linalg.norm(H, axis=0) * np.linalg.norm(K, axis=0) * np.linalg.norm(F, axis=1)
+        keep = np.sort(np.argsort(w)[::-1][:cfg["prune_to"]])
+        dropped = np.setdiff1d(np.arange(H.shape[1]), keep)
+        pruned = dict(polish_dropped_weight=float(w[dropped].sum()),
+                      polish_rho_after_pruning=metrics.rho(H[:, keep], K[:, keep], F[keep], n))
+        H, K, F = H[:, keep], K[:, keep], F[keep]
+    prob = Problem(n, H.shape[1])
+    t0 = time.time()
+    x, status, iters = projected_lm(prob, prob.pack(H, K, F), np.inf, max_iter,
+                                    stall_window=max_iter)
+    H, K, F = prob.unpack(x)
+    res = dict(polish_rho=metrics.rho(H, K, F, n), polish_weight=metrics.weight(H, K, F),
+               polish_status=status, polish_iterations=iters,
+               polish_cancellation_level=metrics.cancellation_level(H, K, F, n),
+               polish_seconds=time.time() - t0, polish_rank=H.shape[1], **pruned)
+    np.savez(os.path.join(out, "polished.npz"), H=H, K=K, F=F, n=n, **res)
+    return res
+
+
+def _wandb_run(target, out, cfg, group, tags, job_type=None):
     import wandb
     entity, _, project = target.rpartition("/")
     id_file = os.path.join(out, "wandb_id.txt")
@@ -154,17 +221,27 @@ def _wandb_run(target, out, cfg, group, tags):
     return wandb.init(entity=entity or None, project=project, id=run_id, resume="allow",
                       name=os.path.basename(os.path.normpath(out)), config=cfg,
                       group=group or f"{kind}_n{cfg['n']}_r{cfg['rank']}",
-                      job_type="control" if cfg["init_from"] else kind, tags=tags or None,
+                      job_type=job_type or ("control" if cfg["init_from"] else kind),
+                      tags=tags or None,
                       settings=wandb.Settings(console="off"))
 
 
 def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="numba", init="normal",
           log_every=100, ckpt_every=10_000, quiet=False, init_from=None, wandb=None,
-          wandb_group=None, wandb_tags=None, _interrupt_at=None):
+          wandb_group=None, wandb_tags=None, lr=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR,
+          patience=LR_PATIENCE, schedule="plateau", batch=BATCH, polish=0, wandb_job_type=None,
+          weight_decay=0.0, extra_scale=0.1, group_lasso=0.0, prune_to=0, _interrupt_at=None):
     border = degrees is not None
     deg = list(range(degrees[0], degrees[1] + 1)) if border else [0]
     cfg = dict(n=n, rank=rank, degrees=deg, border=border, seed=seed, init=init, max_epochs=max_epochs,
-               backend=backend, init_from=init_from)
+               backend=backend, init_from=init_from, lr_start=lr, lr_min=lr_min, lr_factor=lr_factor,
+               patience=patience, schedule=schedule, batch=batch, polish=polish,
+               weight_decay=weight_decay, extra_scale=extra_scale, group_lasso=group_lasso,
+               prune_to=prune_to)
+    # the protocol's values, for checkpoints written before these options existed
+    old = dict(lr_start=LR_START, lr_min=LR_MIN, lr_factor=LR_FACTOR, patience=LR_PATIENCE,
+               schedule="plateau", batch=BATCH, weight_decay=0.0, extra_scale=0.1,
+               group_lasso=0.0)
     os.makedirs(out, exist_ok=True)
     ckpt = os.path.join(out, "ckpt.npz")
     eps_of = (lambda e: epsilon_at(e, max_epochs)) if border else (lambda e: 1.0)
@@ -172,26 +249,28 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
     if os.path.exists(ckpt):
         z = np.load(ckpt)
         meta = json.loads(str(z["meta"]))
-        for key in ("n", "rank", "degrees", "seed", "init", "max_epochs", "init_from"):
-            if meta.get(key) != cfg[key]:
-                raise SystemExit(f"{ckpt} was written with {key}={meta[key]}, not {cfg[key]}")
+        for key in ("n", "rank", "degrees", "seed", "init", "max_epochs", "init_from", *old):
+            if meta.get(key, old.get(key)) != cfg[key]:
+                raise SystemExit(f"{ckpt} was written with {key}={meta.get(key, old.get(key))}, "
+                                 f"not {cfg[key]}")
         data = (tuple(z[f"train{i}"] for i in range(3)), tuple(z[f"val{i}"] for i in range(3)))
         rng = np.random.default_rng()
         rng.bit_generator.state = meta["rng_state"]
-        be = make_backend(backend, [z[f"p{i}"] for i in range(3)], deg)
+        be = make_backend(backend, [z[f"p{i}"] for i in range(3)], deg, CLIP, weight_decay)
         be.set_state([z[f"p{i}"] for i in range(3)], [z[f"m{i}"] for i in range(3)],
                      [z[f"v{i}"] for i in range(3)], meta["step"])
-        sched = Plateau(lr=meta["lr"], best=meta["pl_best"], bad=meta["pl_bad"])
+        sched = Plateau(lr=meta["lr"], factor=lr_factor, patience=patience, min_lr=lr_min,
+                        best=meta["pl_best"], bad=meta["pl_bad"])
         best = dict(P=[z[f"b{i}"].copy() for i in range(3)], val=meta["best_val"],
                     epoch=meta["best_epoch"], eps=eps_of(max(meta["best_epoch"], 1)))
         first, elapsed = meta["epoch"] + 1, meta.get("seconds", 0.0)
     else:
         rng = np.random.default_rng(seed)
         data = draw_sets(rng, n)
-        params = _load_start(init_from, n, rank, deg) if init_from else \
+        params = _load_start(init_from, n, rank, deg, rng, extra_scale) if init_from else \
             init_params(rng, n, rank, deg, init)
-        be = make_backend(backend, params, deg)
-        sched = Plateau()
+        be = make_backend(backend, params, deg, CLIP, weight_decay)
+        sched = Plateau(lr=lr, factor=lr_factor, patience=patience, min_lr=lr_min)
         best = dict(P=[p.copy() for p in params], val=float("inf"), epoch=0, eps=eps_of(1))
         first, elapsed = 1, 0.0
     train_set, val_set = data
@@ -204,14 +283,22 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
             kept += [row for row in fh.readlines()[1:] if int(row.split(",")[0]) < first]
     log = open(log_path, "w", buffering=1 << 20)
     log.writelines(kept)
-    run = _wandb_run(wandb, out, cfg, wandb_group, wandb_tags) if wandb else None
+    run = _wandb_run(wandb, out, cfg, wandb_group, wandb_tags, wandb_job_type) if wandb else None
+    lr_of = {"plateau": lambda e: sched.lr, "constant": lambda e: lr,
+             "cosine": lambda e: cosine_lr(e, max_epochs, lr, lr_min)}[schedule]
     t0 = time.time()
     for epoch in range(first, max_epochs + 1):
-        eps, lr = eps_of(epoch), sched.lr
+        eps, lr_now = eps_of(epoch), lr_of(epoch)
         perm = rng.permutation(n_train)
-        train_loss = be.train_epoch(eps, lr, train_set, perm, BATCH)
+        train_loss = be.train_epoch(eps, lr_now, train_set, perm, batch)
         val = be.validate(eps, val_set)
-        sched.step(val)
+        if schedule == "plateau":
+            sched.step(val)
+        if group_lasso:
+            P_now, M_now, V_now, step = be.get_state()
+            amount = lr_now * group_lasso * epoch / max_epochs * -(-n_train // batch)
+            be.set_state(_group_shrink(P_now, amount), M_now, V_now, step)
+            val = be.validate(eps, val_set)
         if val < best["val"]:
             best.update(P=be.get_state()[0], val=val, epoch=epoch, eps=eps)
         last = epoch == max_epochs
@@ -219,9 +306,9 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
             P_now, _, _, step = be.get_state()
             H, K, F = (metrics.evaluate(p, deg, eps) for p in P_now)
             rho, w = metrics.rho(H, K, F, n), metrics.weight(H, K, F)
-            log.write(f"{epoch},{eps!r},{lr!r},{train_loss!r},{val!r},{rho!r},{w!r}\n")
+            log.write(f"{epoch},{eps!r},{lr_now!r},{train_loss!r},{val!r},{rho!r},{w!r}\n")
             if run:
-                run.log(dict(epoch=epoch, epsilon=eps, lr=lr, train_loss=train_loss, val_loss=val,
+                run.log(dict(epoch=epoch, epsilon=eps, lr=lr_now, train_loss=train_loss, val_loss=val,
                              rho=rho, weight=w, best_val_loss=best["val"],
                              updates=int(step)), step=epoch)
         if epoch % ckpt_every == 0 or last:
@@ -235,12 +322,28 @@ def train(n, rank, out, seed=0, degrees=None, max_epochs=MAX_EPOCHS, backend="nu
                 run.summary.update({k: v for k, v in summary.items() if k not in cfg})
             if not quiet:
                 rate = (time.time() - t0) / (epoch - first + 1)
-                print(f"[{os.path.basename(out)}] epoch {epoch} lr {lr:.1e} val {val:.4e} "
+                print(f"[{os.path.basename(out)}] epoch {epoch} lr {lr_now:.1e} val {val:.4e} "
                       f"best {best['val']:.4e} @ {best['epoch']} | {rate * 1e3:.2f} ms/epoch, "
                       f"{(max_epochs - epoch) * rate / 3600:.2f} h left", flush=True)
         if epoch == _interrupt_at:      # used by the tests to emulate a killed process
             break
     log.close()
+    summary_path = os.path.join(out, "summary.json")
+    if polish and not border and os.path.exists(summary_path):
+        with open(summary_path) as fh:
+            summary = json.load(fh)
+        if summary["epochs_done"] >= max_epochs and "polish_rho" not in summary:
+            # with the group lasso the terms are pruned along the run: polish the last point
+            start = dict(P=be.get_state()[0]) if group_lasso else best
+            summary.update(_polish(out, start, cfg, polish))
+            with open(summary_path, "w") as fh:
+                json.dump(summary, fh, indent=2)
+            if run:
+                run.summary.update({k: v for k, v in summary.items() if k.startswith("polish_")})
+            if not quiet:
+                print(f"[{os.path.basename(out)}] polish: rho {summary['polish_rho']:.3e} "
+                      f"W {summary['polish_weight']:.4g} {summary['polish_status']} "
+                      f"({summary['polish_iterations']} it)", flush=True)
     if run:
         run.finish()
     return best
@@ -267,11 +370,29 @@ def main():
     ap.add_argument("--wandb", metavar="ENTITY/PROJECT", help="log to Weights & Biases")
     ap.add_argument("--wandb-group")
     ap.add_argument("--wandb-tags", nargs="*")
+    ap.add_argument("--wandb-job-type")
+    ap.add_argument("--lr", type=float, default=LR_START, help="initial learning rate")
+    ap.add_argument("--lr-min", type=float, default=LR_MIN, help="smallest learning rate")
+    ap.add_argument("--lr-factor", type=float, default=LR_FACTOR, help="plateau: reduction factor")
+    ap.add_argument("--patience", type=int, default=LR_PATIENCE, help="plateau: patience (epochs)")
+    ap.add_argument("--schedule", choices=["plateau", "cosine", "constant"], default="plateau")
+    ap.add_argument("--batch", type=int, default=BATCH, help="mini-batch size")
+    ap.add_argument("--weight-decay", type=float, default=0.0, help="AdamW weight decay")
+    ap.add_argument("--extra-scale", type=float, default=0.1,
+                    help="scale of the terms added to a --init-from file with fewer terms")
+    ap.add_argument("--group-lasso", type=float, default=0.0, metavar="LAM",
+                    help="group-lasso weight on the terms, growing linearly to LAM")
+    ap.add_argument("--prune-to", type=int, default=0, metavar="R",
+                    help="polish from the R terms of largest weight")
+    ap.add_argument("--polish", type=int, default=0, metavar="N",
+                    help="end with at most N Levenberg-Marquardt iterations (rank model)")
     a = ap.parse_args()
     if a.degrees and a.degrees[0] > a.degrees[1]:
         ap.error("--degrees needs D_MIN <= D_MAX")
     best = train(a.n, a.rank, a.out, a.seed, a.degrees, a.max_epochs, a.backend, a.init, a.log_every,
-                 a.ckpt_every, a.quiet, a.init_from, a.wandb, a.wandb_group, a.wandb_tags)
+                 a.ckpt_every, a.quiet, a.init_from, a.wandb, a.wandb_group, a.wandb_tags, a.lr,
+                 a.lr_min, a.lr_factor, a.patience, a.schedule, a.batch, a.polish, a.wandb_job_type,
+                 a.weight_decay, a.extra_scale, a.group_lasso, a.prune_to)
     print(f"best validation loss {best['val']:.6e} at epoch {best['epoch']}")
 
 

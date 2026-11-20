@@ -6,13 +6,16 @@ from matmulnet.data import draw_sets
 from matmulnet.train import BATCH, init_params, make_backend
 
 
-@pytest.mark.parametrize("n,r,deg,eps,scale", [(2, 7, [0], 1.0, 1.0), (3, 23, [0], 1.0, 1.0),
-                                               (3, 19, [-2, -1, 0, 1, 2, 3, 4], 0.1, 0.01)])
-def test_same_trajectory(n, r, deg, eps, scale):
+@pytest.mark.parametrize("n,r,deg,eps,scale,wd", [(2, 7, [0], 1.0, 1.0, 0.0),
+                                                  (3, 23, [0], 1.0, 1.0, 0.0),
+                                                  (3, 19, [-2, -1, 0, 1, 2, 3, 4], 0.1, 0.01, 0.0),
+                                                  (3, 23, [0], 1.0, 1.0, 50.0)])
+def test_same_trajectory(n, r, deg, eps, scale, wd):
     rng = np.random.default_rng(0)
     train, val = draw_sets(rng, n, 500, 100)
     params = [scale * p for p in init_params(rng, n, r, deg)]
-    nb, tc = make_backend("numba", params, deg), make_backend("torch", params, deg)
+    nb = make_backend("numba", params, deg, weight_decay=wd)
+    tc = make_backend("torch", params, deg, weight_decay=wd)
     assert abs(nb.validate(eps, val) / tc.validate(eps, val) - 1) < 1e-12
     for _ in range(3):
         perm = rng.permutation(500)

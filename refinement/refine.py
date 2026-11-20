@@ -22,6 +22,7 @@ import warnings
 
 import numpy as np
 from scipy import linalg as la
+from scipy.linalg import lapack
 from threadpoolctl import threadpool_limits
 
 from matmulnet import metrics
@@ -80,6 +81,26 @@ class Problem:
         return A / self.normM ** 2, g / self.normM
 
 
+def damped_solve(A, d, b):
+    """Solve (A + diag(d)) x = b for symmetric A, as la.solve(A + np.diag(d), b, assume_a="pos")
+    does (LAPACK posv on the upper triangle, LinAlgError if the Cholesky factorisation fails,
+    LinAlgWarning if the reciprocal condition number is below machine precision), without
+    forming diag(d) and without the two copies of the matrix to Fortran order: the transpose of
+    the C-ordered sum is the same matrix in Fortran order."""
+    M = A.copy()
+    M.flat[::M.shape[0] + 1] += d
+    M = M.T
+    anorm = lapack.dlange("1", M)
+    c, x, info = lapack.dposv(M, b, lower=0, overwrite_a=1)
+    if info > 0:
+        raise la.LinAlgError("Matrix is singular.")
+    rcond, _ = lapack.dpocon(c, anorm)
+    if rcond < lapack.dlamch("E"):
+        warnings.warn(f"Ill-conditioned matrix (rcond={rcond:.6g}): result may not be accurate.",
+                      la.LinAlgWarning)
+    return x
+
+
 def projected_lm(prob, x, c, max_iter=50_000, kkt_tol=1e-9, stall_window=200, stall_tol=1e-7,
                  max_seconds=None):
     """Levenberg-Marquardt on the box |x_i| <= c. The step is computed on the variables that
@@ -118,7 +139,7 @@ def projected_lm(prob, x, c, max_iter=50_000, kkt_tol=1e-9, stall_window=200, st
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", la.LinAlgWarning)
-                    step = la.solve(A + mu_try * np.diag(diag), -g[free], assume_a="pos")
+                    step = damped_solve(A, mu_try * diag, -g[free])
             except (la.LinAlgError, la.LinAlgWarning):      # singular to working precision
                 step = None
             if step is not None:
@@ -206,7 +227,8 @@ def main():
     ap.add_argument("--levels", type=float, nargs="+", default=LEVELS)
     ap.add_argument("--max-iter", type=int, default=50_000)
     ap.add_argument("--max-seconds", type=float, help="time limit per level")
-    ap.add_argument("--threads", type=int, default=1, help="threads of the linear algebra")
+    ap.add_argument("--threads", type=int, default=1,
+                    help="threads of the linear algebra (1 is fastest for 3 x 3; 4 for 4 x 4)")
     a = ap.parse_args()
     z = np.load(a.init)
     H, K, F = (np.asarray(z[k], dtype=np.float64) for k in ("H", "K", "F"))
